@@ -102,7 +102,7 @@ parser.add_argument(
 parser.add_argument(
     "--val_step",
     type=int,
-    default=3,
+    default=2,
     help="Validate and save every N epochs",
 )
 
