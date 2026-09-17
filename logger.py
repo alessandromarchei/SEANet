@@ -31,7 +31,7 @@ class WandbLogger:
 
         wandb.init(
             project=args.wandb_project,
-            name=args.wandb_name if args.wandb_name else None,
+            name=args.exp_name,
             config=config,
             dir=args.save_path,
         )

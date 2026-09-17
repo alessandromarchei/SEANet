@@ -15,7 +15,7 @@ from model.dprnn import dprnn
 from model.muse import muse
 from model.avsep import avsep
 from model.seanet import seanet
-
+from tqdm.auto import tqdm
 
 # ============================================================
 # Trainer initialization
@@ -444,16 +444,25 @@ class trainer(nn.Module):
         # Training loop
         # ====================================================
 
+        train_pbar = tqdm(
+            enumerate(
+                args.trainLoader,
+                start=1,
+            ),
+            total=num_loader_batches,
+            desc=f"Train {args.epoch:03d}/{args.max_epoch:03d}",
+            unit="batch",
+            dynamic_ncols=True,
+            leave=True,
+        )
+
         for num, (
             audio,
             face,
             speech,
             noise,
             muse_label,
-        ) in enumerate(
-            args.trainLoader,
-            start=1,
-        ):
+        ) in train_pbar:
 
             # =================================================
             # Move data to GPU
@@ -793,27 +802,12 @@ class trainer(nn.Module):
                 * accum_steps
             )
 
-            sys.stderr.write(
-                "Train: [%2d] %.2f%% "
-                "(est %.1f mins) "
-                "Lr: %.6f, "
-                "Loss: %.3f, "
-                "Accum: %d, "
-                "Eff.B: %d, "
-                "OptSteps: %d\r"
-                % (
-                    args.epoch,
-                    progress,
-                    estimated_minutes,
-                    lr,
-                    mean_loss,
-                    accum_steps,
-                    effective_batch,
-                    num_optimizer_steps,
-                )
+            train_pbar.set_postfix(
+                loss=f"{mean_loss:.3f}",
+                lr=f"{lr:.2e}",
+                eff_batch=effective_batch,
+                opt_steps=num_optimizer_steps,
             )
-
-            sys.stderr.flush()
 
         # ====================================================
         # End epoch
@@ -952,8 +946,19 @@ class trainer(nn.Module):
         # ====================================================
         # Evaluation
         # ====================================================
-
         with torch.inference_mode():
+
+            eval_pbar = tqdm(
+                enumerate(
+                    Loader,
+                    start=1,
+                ),
+                total=len(Loader),
+                desc=f"{eval_type:5s} {args.epoch:03d}/{args.max_epoch:03d}",
+                unit="batch",
+                dynamic_ncols=True,
+                leave=True,
+            )
 
             for num, (
                 audio,
@@ -961,10 +966,8 @@ class trainer(nn.Module):
                 speech,
                 noise,
                 _,
-            ) in enumerate(
-                Loader,
-                start=1,
-            ):
+            ) in eval_pbar:
+
 
                 current_B = audio.shape[0]
 
@@ -1186,27 +1189,11 @@ class trainer(nn.Module):
                     / 60.0
                 )
 
-                sys.stderr.write(
-                    "%s: [%2d] %.2f%% "
-                    "(%.1f mins), "
-                    "SISDR: %.3f, "
-                    "SDR: %.3f, "
-                    "SISDRi: %.3f, "
-                    "SDRi: %.3f\r"
-                    % (
-                        eval_type,
-                        args.epoch,
-                        progress,
-                        estimated_minutes,
-                        mean_sisdr,
-                        mean_sdr,
-                        mean_sisdri,
-                        mean_sdri,
-                    )
+                eval_pbar.set_postfix(
+                    sisdr=f"{mean_sisdr:.3f}",
+                    sdr=f"{mean_sdr:.3f}",
+                    sisdri=f"{mean_sisdri:.3f}",
                 )
-
-                sys.stderr.flush()
-
         # ====================================================
         # End evaluation
         # ====================================================

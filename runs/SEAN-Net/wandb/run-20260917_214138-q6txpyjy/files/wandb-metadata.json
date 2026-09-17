@@ -1,10 +1,10 @@
 {
   "os": "Linux-7.0.0-31-generic-x86_64-with-glibc2.39",
   "python": "CPython 3.10.20",
-  "startedAt": "2026-09-17T19:22:41.408200Z",
+  "startedAt": "2026-09-17T19:41:38.208795Z",
   "args": [
-    "--save_path",
-    "runs/seanet",
+    "--exp_name",
+    "SEAN-Net",
     "--data_list",
     "configs/data_list.csv",
     "--audio_path",
@@ -14,17 +14,17 @@
     "--backbone",
     "seanet",
     "--n_cpu",
-    "16",
+    "20",
     "--length",
     "4",
     "--batch_size",
-    "6",
+    "8",
     "--max_epoch",
     "150",
     "--lr",
     "0.00100",
     "--grad_accum_steps",
-    "2",
+    "1",
     "--compile",
     "--tf32",
     "--precision",
@@ -35,10 +35,10 @@
   "codePathLocal": "main.py",
   "git": {
     "remote": "https://github.com/TaoRuijie/SEANet.git",
-    "commit": "83fd95d037e030f1a3f135d1d860f40b92bdc937"
+    "commit": "269ab9c67504ff2c4e07404fbd89be2a19f65000"
   },
   "email": "amarchei@iis.ee.ethz.ch",
-  "root": "runs/seanet",
+  "root": "runs/SEAN-Net",
   "host": "potentia",
   "executable": "/home/ale/miniconda3/envs/swiftnet/bin/python",
   "cpu_count": 12,
@@ -48,7 +48,7 @@
   "disk": {
     "/": {
       "total": "501809635328",
-      "used": "276476878848"
+      "used": "276780126208"
     }
   },
   "memory": {
@@ -64,5 +64,5 @@
     }
   ],
   "cudaVersion": "13.2",
-  "writerId": "rp23arnux7xrb0dkt05tsi6ueq1o4zrj"
+  "writerId": "wkxnpnu43goag1wniqs17g70daa5cpfe"
 }
