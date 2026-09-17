@@ -1,0 +1,68 @@
+{
+  "os": "Linux-7.0.0-31-generic-x86_64-with-glibc2.39",
+  "python": "CPython 3.10.20",
+  "startedAt": "2026-09-17T19:22:41.408200Z",
+  "args": [
+    "--save_path",
+    "runs/seanet",
+    "--data_list",
+    "configs/data_list.csv",
+    "--audio_path",
+    "/scratch_nvme/VoxCeleb2-2Mix/audio_clean/train/",
+    "--visual_path",
+    "/home/ale/datasets/VoxCeleb2-2Mix_SEANNet/",
+    "--backbone",
+    "seanet",
+    "--n_cpu",
+    "16",
+    "--length",
+    "4",
+    "--batch_size",
+    "6",
+    "--max_epoch",
+    "150",
+    "--lr",
+    "0.00100",
+    "--grad_accum_steps",
+    "2",
+    "--compile",
+    "--tf32",
+    "--precision",
+    "bf16"
+  ],
+  "program": "/home/ale/work/av-tse/SEANet/main.py",
+  "codePath": "main.py",
+  "codePathLocal": "main.py",
+  "git": {
+    "remote": "https://github.com/TaoRuijie/SEANet.git",
+    "commit": "83fd95d037e030f1a3f135d1d860f40b92bdc937"
+  },
+  "email": "amarchei@iis.ee.ethz.ch",
+  "root": "runs/seanet",
+  "host": "potentia",
+  "executable": "/home/ale/miniconda3/envs/swiftnet/bin/python",
+  "cpu_count": 12,
+  "cpu_count_logical": 24,
+  "gpu": "NVIDIA GeForce RTX 5060 Ti",
+  "gpu_count": 1,
+  "disk": {
+    "/": {
+      "total": "501809635328",
+      "used": "276476878848"
+    }
+  },
+  "memory": {
+    "total": "33524101120"
+  },
+  "gpu_nvidia": [
+    {
+      "name": "NVIDIA GeForce RTX 5060 Ti",
+      "memoryTotal": "17103323136",
+      "cudaCores": 4608,
+      "architecture": "Blackwell",
+      "uuid": "GPU-9738389e-a3e9-40c9-e30e-4e765906bf8e"
+    }
+  ],
+  "cudaVersion": "13.2",
+  "writerId": "rp23arnux7xrb0dkt05tsi6ueq1o4zrj"
+}

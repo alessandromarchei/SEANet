@@ -2,7 +2,7 @@ import numpy, os, random, soundfile, torch
 
 def init_loader(args):
 	args.trainLoader = torch.utils.data.DataLoader(train_loader(set_type = 'train', **vars(args)), batch_size = args.batch_size, shuffle = True, num_workers = args.n_cpu, drop_last = True)
-	args.valLoader   = torch.utils.data.DataLoader(train_loader(set_type = 'val', **vars(args)),  batch_size = args.batch_size, shuffle = False, num_workers = args.n_cpu, drop_last = True)
+	args.valLoader   = torch.utils.data.DataLoader(train_loader(set_type = 'val', **vars(args)),  batch_size = 8, shuffle = False, num_workers = args.n_cpu, drop_last = True)
 	args.testLoader  = torch.utils.data.DataLoader(test_loader(**vars(args)), batch_size = 1, shuffle = False, num_workers = 0, drop_last = False)
 	return args
 

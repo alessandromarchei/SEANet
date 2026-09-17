@@ -42,10 +42,10 @@ printf "seanet-Vox2-training \n"
 python ../main.py \
 --save_path exps/seanet \
 --data_list data_list.csv \
---audio_path /home/user/data08/VoxCeleb2/wav \
---visual_path /home/user/data08/VoxMix/lip_open_source \
+--audio_path /scratch_ssd/VoxCeleb2-2Mix/raw_audio/ \
+--visual_path /home/ale/datasets/VoxCeleb2-2Mix_SEANNet/ \
 --backbone seanet \
---n_cpu 12 \
+--n_cpu 16 \
 --length 4 \
 --batch_size 10 \
 --max_epoch 150 \
