@@ -6,7 +6,11 @@ import wandb
 
 
 class WandbLogger:
-    def __init__(self, args):
+    def __init__(
+        self,
+        args,
+        resume_run_id=None,
+    ):  
         self.args = args
         self.enabled = not getattr(args, "no_wandb", False)
 
@@ -29,12 +33,25 @@ class WandbLogger:
             "tf32": args.tf32,
         }
 
-        wandb.init(
-            project=args.wandb_project,
-            name=args.exp_name,
-            config=config,
-            dir=args.save_path,
-        )
+        if resume_run_id is not None:
+
+            wandb.init(
+                project=args.wandb_project,
+                name=args.exp_name,
+                id=resume_run_id,
+                resume="must",
+                config=config,
+                dir=args.save_path,
+            )
+
+        else:
+
+            wandb.init(
+                project=args.wandb_project,
+                name=args.exp_name,
+                config=config,
+                dir=args.save_path,
+            )
 
         wandb.define_metric("epoch")
         wandb.define_metric("train/*", step_metric="epoch")
@@ -187,3 +204,11 @@ class WandbLogger:
     def finish(self):
         if self.enabled:
             wandb.finish()
+
+    @property
+    def run_id(self):
+
+        if not self.enabled:
+            return None
+
+        return wandb.run.id

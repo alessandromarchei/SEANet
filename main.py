@@ -142,8 +142,8 @@ parser.add_argument(
 parser.add_argument(
     "--exp_name",
     type=str,
-    required=True,
-    help="Experiment name. Results are stored in runs/<exp_name>",
+    default="",
+    help="Experiment name for a new training run",
 )
 
 parser.add_argument(
@@ -256,6 +256,19 @@ parser.add_argument(
     default=10,
 )
 
+parser.add_argument(
+    "--resume",
+    type=str,
+    default="",
+    help="Resume training from a full checkpoint, e.g. runs/exp/last.pt",
+)
+
+parser.add_argument(
+    "--start_epoch",
+    type=int,
+    default=1,
+    help="Starting epoch when initializing from a model-only checkpoint",
+)
 
 # ============================================================
 # Parse arguments
@@ -263,26 +276,53 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-
+if not args.resume and not args.exp_name:
+    parser.error(
+        "--exp_name is required when starting a new experiment"
+    )
+    
 # ============================================================
 # Experiment name / path
 # ============================================================
 
-actual_exp_name, save_path = (
-    create_experiment_directory(
+if args.resume:
+
+    # Resume existing experiment.
+    resume_path = os.path.abspath(args.resume)
+
+    if not os.path.isfile(resume_path):
+        raise FileNotFoundError(
+            f"Resume checkpoint not found: {resume_path}"
+        )
+
+    # last.pt is inside the experiment directory.
+    args.save_path = os.path.dirname(resume_path)
+
+    args.exp_name = os.path.basename(
+        os.path.normpath(args.save_path)
+    )
+
+    args.wandb_name = args.exp_name
+
+    print()
+    print("Resuming experiment")
+    print("-------------------")
+    print(f"Experiment: {args.exp_name}")
+    print(f"Directory:  {args.save_path}")
+    print(f"Checkpoint: {resume_path}")
+    print()
+
+else:
+
+    # Brand-new experiment.
+    actual_exp_name, save_path = create_experiment_directory(
         args.exp_name,
         root="runs",
     )
-)
 
-# init_system expects save_path, so populate it internally.
-args.save_path = save_path
-
-# W&B uses EXACTLY the resolved experiment name.
-args.wandb_name = actual_exp_name
-
-# Also keep it available explicitly.
-args.exp_name = actual_exp_name
+    args.save_path = save_path
+    args.exp_name = actual_exp_name
+    args.wandb_name = actual_exp_name
 
 
 print()
@@ -303,11 +343,32 @@ args = init_system(args)
 s = init_trainer(args)
 
 
+resume_info = None
+
+if args.resume:
+
+    resume_info = s.load_training_checkpoint(
+        args.resume
+    )
+
+    args.epoch = resume_info["next_epoch"]
+
+
 # ============================================================
 # Logger
 # ============================================================
 
-logger = WandbLogger(args)
+resume_wandb_id = None
+
+if resume_info is not None:
+    resume_wandb_id = resume_info.get(
+        "wandb_run_id"
+    )
+
+logger = WandbLogger(
+    args,
+    resume_run_id=resume_wandb_id,
+)
 
 s.logger = logger
 
@@ -342,13 +403,38 @@ if args.eval:
 # ============================================================
 # Training
 # ============================================================
+# ============================================================
+# Training
+# ============================================================
 
 while args.epoch <= args.max_epoch:
 
+    # --------------------------------------------------------
+    # Train one complete epoch
+    # --------------------------------------------------------
 
     s.train_network(args)
 
+
+    # --------------------------------------------------------
+    # Validation + model-only checkpoint
+    #
+    # Every val_step epochs:
+    #
+    #   model_0002.model
+    #   model_0004.model
+    #   model_0006.model
+    #   ...
+    #
+    # These contain model weights only.
+    # --------------------------------------------------------
+
     if args.epoch % args.val_step == 0:
+
+        s.eval_network(
+            "Val",
+            args,
+        )
 
         model_path = os.path.join(
             args.model_save_path,
@@ -359,10 +445,40 @@ while args.epoch <= args.max_epoch:
             model_path
         )
 
-        s.eval_network(
-            "Val",
-            args,
-        )
+
+    # --------------------------------------------------------
+    # Full resume checkpoint
+    #
+    # Saved EVERY epoch and always overwrites:
+    #
+    #   runs/<experiment>/last.pt
+    #
+    # Contains:
+    #   - model
+    #   - optimizer
+    #   - scheduler
+    #   - GradScaler
+    #   - epoch
+    #   - W&B run ID
+    #
+    # This is the file used by --resume.
+    # --------------------------------------------------------
+
+    last_checkpoint_path = os.path.join(
+        args.save_path,
+        "last.pt",
+    )
+
+    s.save_training_checkpoint(
+        path=last_checkpoint_path,
+        epoch=args.epoch,
+        wandb_run_id=logger.run_id,
+    )
+
+
+    # --------------------------------------------------------
+    # Next epoch
+    # --------------------------------------------------------
 
     args.epoch += 1
 

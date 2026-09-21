@@ -25,12 +25,17 @@ def init_trainer(args):
 
     s = trainer(args)
 
-    args.epoch = 1
+    args.epoch = args.start_epoch
 
     if args.init_model != "":
 
-        print(f"Model {args.init_model} loaded from pretrain!")
-        s.load_parameters(args.init_model)
+        print(
+            f"Model {args.init_model} loaded from pretrain!"
+        )
+
+        s.load_parameters(
+            args.init_model
+        )
 
     elif len(args.modelfiles) >= 1:
 
@@ -42,16 +47,19 @@ def init_trainer(args):
         args.epoch = (
             int(
                 os.path.splitext(
-                    os.path.basename(args.modelfiles[-1])
+                    os.path.basename(
+                        args.modelfiles[-1]
+                    )
                 )[0][6:]
             )
             + 1
         )
 
-        s.load_parameters(args.modelfiles[-1])
+        s.load_parameters(
+            args.modelfiles[-1]
+        )
 
     return s
-
 
 # ============================================================
 # Trainer
@@ -1452,3 +1460,155 @@ class trainer(nn.Module):
             f"Loaded "
             f"{len(cleaned_state)} tensors."
         )
+
+    def save_training_checkpoint(
+        self,
+        path,
+        epoch,
+        wandb_run_id=None,
+    ):
+
+        original_model = self._original_model()
+
+        checkpoint = {
+            "epoch": epoch,
+
+            "model": original_model.state_dict(),
+
+            "optimizer": self.optim.state_dict(),
+
+            "scheduler": self.scheduler.state_dict(),
+
+            "scaler": (
+                self.scaler.state_dict()
+                if self.scaler is not None
+                else None
+            ),
+
+            "wandb_run_id": wandb_run_id,
+
+            # Useful metadata / sanity checks.
+            "precision": self.precision,
+            "compile": self.use_compile,
+            "compile_mode": self.compile_mode,
+        }
+
+        # Save atomically:
+        # first temporary file, then rename.
+        #
+        # This prevents a crash during torch.save() from destroying
+        # the previous valid last.pt.
+        tmp_path = path + ".tmp"
+
+        torch.save(
+            checkpoint,
+            tmp_path,
+        )
+
+        os.replace(
+            tmp_path,
+            path,
+        )
+
+        print(
+            f"Training checkpoint saved: {path}"
+        )
+
+    def load_training_checkpoint(
+        self,
+        path,
+    ):
+
+        print(
+            f"Loading full training checkpoint: {path}"
+        )
+
+        checkpoint = torch.load(
+            path,
+            map_location="cpu",
+        )
+
+        # ========================================================
+        # Model
+        # ========================================================
+
+        original_model = self._original_model()
+
+        original_model.load_state_dict(
+            checkpoint["model"],
+            strict=True,
+        )
+
+        # ========================================================
+        # Optimizer
+        # ========================================================
+
+        self.optim.load_state_dict(
+            checkpoint["optimizer"]
+        )
+
+        # Optimizer tensors were loaded on CPU because of
+        # map_location="cpu". Move them back to the same device
+        # as the model parameters.
+        device = next(
+            original_model.parameters()
+        ).device
+
+        for state in self.optim.state.values():
+
+            for key, value in state.items():
+
+                if torch.is_tensor(value):
+
+                    state[key] = value.to(
+                        device,
+                        non_blocking=True,
+                    )
+
+        # ========================================================
+        # Scheduler
+        # ========================================================
+
+        self.scheduler.load_state_dict(
+            checkpoint["scheduler"]
+        )
+
+        # ========================================================
+        # GradScaler
+        # ========================================================
+
+        if (
+            checkpoint.get("scaler") is not None
+            and self.scaler is not None
+        ):
+
+            self.scaler.load_state_dict(
+                checkpoint["scaler"]
+            )
+
+        # ========================================================
+        # Epoch
+        # ========================================================
+
+        completed_epoch = checkpoint["epoch"]
+
+        next_epoch = completed_epoch + 1
+
+        print()
+        print("Resume successful")
+        print("-----------------")
+        print(f"Completed epoch: {completed_epoch}")
+        print(f"Next epoch:      {next_epoch}")
+        print(
+            f"LR:              "
+            f"{self.optim.param_groups[0]['lr']:.8f}"
+        )
+        print()
+
+        return {
+            "epoch": completed_epoch,
+            "next_epoch": next_epoch,
+            "wandb_run_id": checkpoint.get(
+                "wandb_run_id"
+            ),
+        }
