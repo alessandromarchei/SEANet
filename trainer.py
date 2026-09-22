@@ -723,8 +723,11 @@ class trainer(nn.Module):
                 .item()
             )
 
-            total_loss += raw_loss
+            # Normalize ONLY for reporting.
+            # This does NOT affect backward() or optimizer behavior.
+            logged_loss = raw_loss / current_B
 
+            total_loss += logged_loss
             # =================================================
             # Normalize loss for gradient accumulation
             # =================================================

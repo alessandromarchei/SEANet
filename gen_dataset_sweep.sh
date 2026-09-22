@@ -13,10 +13,11 @@ VISUAL_FRONTEND="pretrain_networks/visual_frontend.pt"
 SOURCE_FPS=25
 
 FPS_VALUES=(
-    20
-    17.5
-    15
-    12.5
+    25
+    # 12.5
+    # 20
+    # 17.5
+    # 15
 )
 
 echo "============================================================"
