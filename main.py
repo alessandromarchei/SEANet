@@ -9,7 +9,7 @@ from tools import *
 from trainer import *
 from dataLoader import *
 from logger import WandbLogger
-
+import wandb
 
 # ============================================================
 # Experiment directory
@@ -351,6 +351,27 @@ print()
 # Original SEANet initialization
 # ============================================================
 
+
+# ============================================================
+# Checkpoint directory
+# ============================================================
+
+args.checkpoint_dir = os.path.join(
+    args.save_path,
+    "checkpoints",
+)
+
+os.makedirs(
+    args.checkpoint_dir,
+    exist_ok=True,
+)
+
+print(
+    f"Checkpoints: {args.checkpoint_dir}"
+)
+print()
+
+
 args = init_system(args)
 
 s = init_trainer(args)
@@ -428,21 +449,6 @@ while args.epoch <= args.max_epoch:
     s.train_network(args)
 
     # ========================================================
-    # LAST
-    # ========================================================
-
-    s.save_rotating_checkpoint(
-        checkpoint_dir=args.checkpoint_dir,
-        checkpoint_type="last",
-        epoch=args.epoch,
-        wandb_run_id=(
-            wandb.run.id
-            if wandb.run is not None
-            else None
-        ),
-    )
-
-    # ========================================================
     # VALIDATION
     # ========================================================
 
@@ -482,7 +488,22 @@ while args.epoch <= args.max_epoch:
                 f"val SI-SDR={best_val_sisdr:.3f} dB"
             )
 
+    # ========================================================
+    # LAST
+    # ========================================================
 
+    s.save_rotating_checkpoint(
+        checkpoint_dir=args.checkpoint_dir,
+        checkpoint_type="last",
+        epoch=args.epoch,
+        wandb_run_id=(
+            wandb.run.id
+            if wandb.run is not None
+            else None
+        ),
+    )
+
+    
     # --------------------------------------------------------
     # Next epoch
     # --------------------------------------------------------
