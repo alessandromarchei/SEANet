@@ -524,8 +524,9 @@ def sanitize_sample_name(
 def save_wav(
     path,
     tensor,
+    normalize=False,
+    subtype="FLOAT",
 ):
-
     audio = (
         tensor
         .detach()
@@ -534,16 +535,25 @@ def save_wav(
         .numpy()
     )
 
-    # Remove possible singleton dimensions.
     audio = np.squeeze(audio)
+
+    if not np.all(np.isfinite(audio)):
+        raise ValueError(
+            f"Non-finite values found while saving {path}"
+        )
+
+    if normalize:
+        peak = np.max(np.abs(audio))
+
+        if peak > 0:
+            audio = 0.95 * audio / peak
 
     sf.write(
         path,
         audio,
         16000,
-        subtype="PCM_16",
+        subtype=subtype,
     )
-
 
 # ============================================================
 # Forward
@@ -862,27 +872,32 @@ def evaluate(
                 # --------------------------------------------
 
                 save_wav(
-                    os.path.join(
-                        sample_dir,
-                        "mixture.wav",
-                    ),
-                    audio[i],
-                )
-
-                save_wav(
-                    os.path.join(
-                        sample_dir,
-                        "estimate.wav",
-                    ),
+                    os.path.join(sample_dir, "estimate_raw_float.wav"),
                     estimate_fp32[i],
+                    normalize=False,
+                    subtype="FLOAT",
+                )
+
+                # Versione normalizzata solo per l'ascolto
+                save_wav(
+                    os.path.join(sample_dir, "estimate_listen.wav"),
+                    estimate_fp32[i],
+                    normalize=True,
+                    subtype="PCM_16",
                 )
 
                 save_wav(
-                    os.path.join(
-                        sample_dir,
-                        "target.wav",
-                    ),
+                    os.path.join(sample_dir, "mixture.wav"),
+                    audio[i],
+                    normalize=False,
+                    subtype="FLOAT",
+                )
+
+                save_wav(
+                    os.path.join(sample_dir, "target.wav"),
                     target_fp32[i],
+                    normalize=False,
+                    subtype="FLOAT",
                 )
 
                 save_wav(

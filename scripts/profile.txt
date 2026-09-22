@@ -1,0 +1,151 @@
+(swiftnet) ale@potentia:~/work/av-tse/SEANet$ python scripts/profile_networks_ptflops.py     --models  av_sepformer seanet dprnn muse      --duration 1     --sample-rate 16000     --fps 25     --visual-frontend pretrain_networks/visual_frontend.pt
+
+DeepAVSR Visual Frontend
+----------------------------------------------------------------------------
+Parameters : 11,185,088 (11.185 M)
+/home/ale/miniconda3/envs/swiftnet/lib/python3.10/site-packages/torch/nn/modules/transformer.py:382: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+[OK] Loaded model.avsep.avsep
+
+############################################################################
+# AV_SEPFORMER
+############################################################################
+Backend parameters : 21,734,022 (21.734 M)
+
+============================================================================
+MODEL              : av_sepformer
+Duration           : 1.000 s
+Sample rate        : 16000 Hz
+Audio samples      : 16000
+Visual FPS         : 25.0
+Visual frames      : 25
+Audio latent steps : 799
+Visual/audio ratio : 31.96
+============================================================================
+
+AV-TSE BACKEND
+----------------------------------------------------------------------------
+GMACs / input       : 77.2505
+GMACs / second      : 77.2505
+
+DEEPAVSR VISUAL FRONTEND
+----------------------------------------------------------------------------
+Frames              : 25
+GMACs / input       : 12.6722
+GMACs / second      : 12.6722
+GMACs / frame avg.  : 0.5069
+
+END-TO-END
+----------------------------------------------------------------------------
+Total parameters    : 32,919,110 (32.919 M)
+Total GMACs/input   : 89.9227
+Total GMACs/sec     : 89.9227
+Visual frontend     : 14.09% of compute
+[OK] Loaded model.seanet.seanet
+
+############################################################################
+# SEANET
+############################################################################
+Backend parameters : 8,700,422 (8.700 M)
+
+============================================================================
+MODEL              : seanet
+Duration           : 1.000 s
+Sample rate        : 16000 Hz
+Audio samples      : 16000
+Visual FPS         : 25.0
+Visual frames      : 25
+Audio latent steps : 799
+Visual/audio ratio : 31.96
+============================================================================
+
+AV-TSE BACKEND
+----------------------------------------------------------------------------
+GMACs / input       : 14.4275
+GMACs / second      : 14.4275
+
+DEEPAVSR VISUAL FRONTEND
+----------------------------------------------------------------------------
+Frames              : 25
+GMACs / input       : 12.6722
+GMACs / second      : 12.6722
+GMACs / frame avg.  : 0.5069
+
+END-TO-END
+----------------------------------------------------------------------------
+Total parameters    : 19,885,510 (19.886 M)
+Total GMACs/input   : 27.0997
+Total GMACs/sec     : 27.0997
+Visual frontend     : 46.76% of compute
+[OK] Loaded model.dprnn.dprnn
+
+############################################################################
+# DPRNN
+############################################################################
+Backend parameters : 4,119,302 (4.119 M)
+
+============================================================================
+MODEL              : dprnn
+Duration           : 1.000 s
+Sample rate        : 16000 Hz
+Audio samples      : 16000
+Visual FPS         : 25.0
+Visual frames      : 25
+Audio latent steps : 799
+Visual/audio ratio : 31.96
+============================================================================
+
+AV-TSE BACKEND
+----------------------------------------------------------------------------
+GMACs / input       : 4.9088
+GMACs / second      : 4.9088
+
+DEEPAVSR VISUAL FRONTEND
+----------------------------------------------------------------------------
+Frames              : 25
+GMACs / input       : 12.6722
+GMACs / second      : 12.6722
+GMACs / frame avg.  : 0.5069
+
+END-TO-END
+----------------------------------------------------------------------------
+Total parameters    : 15,304,390 (15.304 M)
+Total GMACs/input   : 17.5810
+Total GMACs/sec     : 17.5810
+Visual frontend     : 72.08% of compute
+[OK] Loaded model.muse.muse
+
+############################################################################
+# MUSE
+############################################################################
+Backend parameters : 15,014,109 (15.014 M)
+
+============================================================================
+MODEL              : muse
+Duration           : 1.000 s
+Sample rate        : 16000 Hz
+Audio samples      : 16000
+Visual FPS         : 25.0
+Visual frames      : 25
+Audio latent steps : 799
+Visual/audio ratio : 31.96
+============================================================================
+
+AV-TSE BACKEND
+----------------------------------------------------------------------------
+GMACs / input       : 8.6499
+GMACs / second      : 8.6499
+
+DEEPAVSR VISUAL FRONTEND
+----------------------------------------------------------------------------
+Frames              : 25
+GMACs / input       : 12.6722
+GMACs / second      : 12.6722
+GMACs / frame avg.  : 0.5069
+
+END-TO-END
+----------------------------------------------------------------------------
+Total parameters    : 26,199,197 (26.199 M)
+Total GMACs/input   : 21.3221
+Total GMACs/sec     : 21.3221
+Visual frontend     : 59.43% of compute

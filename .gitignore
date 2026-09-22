@@ -1,6 +1,7 @@
 # Other files
 *.model
 *.pth
+*.pt
 *.wav
 *.mp4
 # *.txt

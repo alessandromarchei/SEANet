@@ -177,12 +177,6 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--musan_path",
-    type=str,
-    default="",
-)
-
-parser.add_argument(
     "--backbone",
     type=str,
     default="",
@@ -268,6 +262,14 @@ parser.add_argument(
     type=int,
     default=1,
     help="Starting epoch when initializing from a model-only checkpoint",
+)
+
+parser.add_argument(
+    "--visual_fps",
+    type=float,
+    choices=[25.0, 20.0, 17.5, 15.0, 12.5],
+    default=25.0,
+    help="Rate at which the visual embeddings are arriving",
 )
 
 # ============================================================
