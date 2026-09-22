@@ -300,6 +300,17 @@ if args.resume:
     # last.pt is inside the experiment directory.
     args.save_path = os.path.dirname(resume_path)
 
+    args.checkpoint_dir = os.path.join(
+        args.save_path,
+        "checkpoints",
+    )
+
+    os.makedirs(
+        args.checkpoint_dir,
+        exist_ok=True,
+    )
+
+
     args.exp_name = os.path.basename(
         os.path.normpath(args.save_path)
     )
@@ -402,80 +413,74 @@ if args.eval:
     raise SystemExit(0)
 
 
-# ============================================================
-# Training
-# ============================================================
-# ============================================================
-# Training
-# ============================================================
+best_val_sisdr = -float("inf")
 
+
+# ============================================================
+# Training
+# ============================================================
 while args.epoch <= args.max_epoch:
 
-    # --------------------------------------------------------
-    # Train one complete epoch
-    # --------------------------------------------------------
+    # ========================================================
+    # TRAIN
+    # ========================================================
 
     s.train_network(args)
 
+    # ========================================================
+    # LAST
+    # ========================================================
 
-    # --------------------------------------------------------
-    # Validation + model-only checkpoint
-    #
-    # Every val_step epochs:
-    #
-    #   model_0002.model
-    #   model_0004.model
-    #   model_0006.model
-    #   ...
-    #
-    # These contain model weights only.
-    # --------------------------------------------------------
+    s.save_rotating_checkpoint(
+        checkpoint_dir=args.checkpoint_dir,
+        checkpoint_type="last",
+        epoch=args.epoch,
+        wandb_run_id=(
+            wandb.run.id
+            if wandb.run is not None
+            else None
+        ),
+    )
+
+    # ========================================================
+    # VALIDATION
+    # ========================================================
 
     if args.epoch % args.val_step == 0:
 
-        s.eval_network(
+        val_metrics = s.eval_network(
             "Val",
             args,
         )
 
-        model_path = os.path.join(
-            args.model_save_path,
-            f"model_{args.epoch:04d}.model",
-        )
+        # eval_network() itself saves the listening WAVs.
 
-        s.save_parameters(
-            model_path
-        )
+        # ====================================================
+        # BEST
+        # ====================================================
 
+        current_val_sisdr = val_metrics["sisdr"]
 
-    # --------------------------------------------------------
-    # Full resume checkpoint
-    #
-    # Saved EVERY epoch and always overwrites:
-    #
-    #   runs/<experiment>/last.pt
-    #
-    # Contains:
-    #   - model
-    #   - optimizer
-    #   - scheduler
-    #   - GradScaler
-    #   - epoch
-    #   - W&B run ID
-    #
-    # This is the file used by --resume.
-    # --------------------------------------------------------
+        if current_val_sisdr > best_val_sisdr:
 
-    last_checkpoint_path = os.path.join(
-        args.save_path,
-        "last.pt",
-    )
+            best_val_sisdr = current_val_sisdr
 
-    s.save_training_checkpoint(
-        path=last_checkpoint_path,
-        epoch=args.epoch,
-        wandb_run_id=logger.run_id,
-    )
+            s.save_rotating_checkpoint(
+                checkpoint_dir=args.checkpoint_dir,
+                checkpoint_type="best",
+                epoch=args.epoch,
+                wandb_run_id=(
+                    wandb.run.id
+                    if wandb.run is not None
+                    else None
+                ),
+            )
+
+            print(
+                f"New best model: "
+                f"epoch={args.epoch}, "
+                f"val SI-SDR={best_val_sisdr:.3f} dB"
+            )
 
 
     # --------------------------------------------------------

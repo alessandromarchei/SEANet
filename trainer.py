@@ -61,6 +61,40 @@ def init_trainer(args):
 
     return s
 
+def save_wav(
+    path,
+    tensor,
+    normalize=False,
+    subtype="FLOAT",
+):
+    audio = (
+        tensor
+        .detach()
+        .float()
+        .cpu()
+        .numpy()
+    )
+
+    audio = np.squeeze(audio)
+
+    if not np.all(np.isfinite(audio)):
+        raise ValueError(
+            f"Non-finite values found while saving {path}"
+        )
+
+    if normalize:
+        peak = np.max(np.abs(audio))
+
+        if peak > 0:
+            audio = 0.95 * audio / peak
+
+    sf.write(
+        path,
+        audio,
+        16000,
+        subtype=subtype,
+    )
+
 # ============================================================
 # Trainer
 # ============================================================
@@ -937,7 +971,6 @@ class trainer(nn.Module):
 
         collect_audio = (
             eval_type == "Val"
-            and self.logger is not None
             and self.num_val_audio_samples > 0
         )
 
@@ -1279,6 +1312,13 @@ class trainer(nn.Module):
                 val_time=eval_time,
             )
 
+
+
+
+
+
+
+
             if len(audio_examples) > 0:
 
                 audio_examples = sorted(
@@ -1286,13 +1326,111 @@ class trainer(nn.Module):
                     key=lambda x: x["name"],
                 )
 
+                # ========================================================
+                # W&B audio
+                # ========================================================
+
                 self.logger.log_audio_examples(
                     epoch=args.epoch,
                     examples=audio_examples,
                     sample_rate=16000,
                 )
 
-        return
+                # ========================================================
+                # Save validation audio locally
+                # ========================================================
+
+                audio_dir = os.path.join(
+                    args.save_path,
+                    "validation_audio",
+                    f"epoch_{args.epoch:03d}",
+                )
+
+                os.makedirs(
+                    audio_dir,
+                    exist_ok=True,
+                )
+
+                for example in audio_examples:
+
+                    name = example["name"]
+
+                    # ----------------------------------------------------
+                    # Mixture
+                    # Already normalized by the dataset loader.
+                    # ----------------------------------------------------
+
+                    save_wav(
+                        os.path.join(
+                            audio_dir,
+                            f"{name}_mixture.wav",
+                        ),
+                        example["mixture"],
+                        normalize=True,
+                        subtype="PCM_16",
+                    )
+
+                    # ----------------------------------------------------
+                    # Ground-truth target
+                    # ----------------------------------------------------
+
+                    save_wav(
+                        os.path.join(
+                            audio_dir,
+                            f"{name}_target.wav",
+                        ),
+                        example["target"],
+                        normalize=True,
+                        subtype="PCM_16",
+                    )
+
+                    # ----------------------------------------------------
+                    # Raw model output
+                    #
+                    # IMPORTANT:
+                    # FLOAT preserves the actual network output.
+                    # No clipping to [-1, 1].
+                    # ----------------------------------------------------
+
+                    save_wav(
+                        os.path.join(
+                            audio_dir,
+                            f"{name}_estimate_float.wav",
+                        ),
+                        example["estimate"],
+                        normalize=False,
+                        subtype="FLOAT",
+                    )
+
+                    # ----------------------------------------------------
+                    # Listening version
+                    #
+                    # Peak-normalized to 0.95 before writing PCM16.
+                    # This is the one you should listen to.
+                    # ----------------------------------------------------
+
+                    save_wav(
+                        os.path.join(
+                            audio_dir,
+                            f"{name}_estimate_listen.wav",
+                        ),
+                        example["estimate"],
+                        normalize=True,
+                        subtype="PCM_16",
+                    )
+
+                print(
+                    f"Validation audio saved to: {audio_dir}"
+                )
+        
+        
+        return {
+            "sisdr": mean_sisdr,
+            "sdr": mean_sdr,
+            "sisdri": mean_sisdri,
+            "sdri": mean_sdri,
+            "val_time": eval_time,
+        }
 
 
     # ========================================================
@@ -1513,6 +1651,75 @@ class trainer(nn.Module):
         print(
             f"Training checkpoint saved: {path}"
         )
+        
+
+    def save_rotating_checkpoint(
+        self,
+        checkpoint_dir,
+        checkpoint_type,
+        epoch,
+        wandb_run_id=None,
+    ):
+        """
+        Save exactly one checkpoint of a given type.
+
+        Examples:
+            best_epoch_012.pt
+            last_epoch_013.pt
+
+        Any previous checkpoint of the same type is removed
+        after the new checkpoint has been successfully written.
+        """
+
+        os.makedirs(
+            checkpoint_dir,
+            exist_ok=True,
+        )
+
+        new_path = os.path.join(
+            checkpoint_dir,
+            f"{checkpoint_type}_epoch_{epoch:03d}.pt",
+        )
+
+        # --------------------------------------------------------
+        # Save new checkpoint first.
+        #
+        # save_training_checkpoint() is already atomic.
+        # --------------------------------------------------------
+
+        self.save_training_checkpoint(
+            path=new_path,
+            epoch=epoch,
+            wandb_run_id=wandb_run_id,
+        )
+
+        # --------------------------------------------------------
+        # Only after successful save, remove previous versions.
+        # --------------------------------------------------------
+
+        prefix = f"{checkpoint_type}_epoch_"
+
+        for filename in os.listdir(checkpoint_dir):
+
+            if (
+                filename.startswith(prefix)
+                and filename.endswith(".pt")
+                and filename != os.path.basename(new_path)
+            ):
+
+                old_path = os.path.join(
+                    checkpoint_dir,
+                    filename,
+                )
+
+                os.remove(old_path)
+
+                print(
+                    f"Removed old checkpoint: {old_path}"
+                )
+
+        return new_path
+
 
     def load_training_checkpoint(
         self,
