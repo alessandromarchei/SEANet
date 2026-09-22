@@ -289,7 +289,6 @@ if not args.resume and not args.exp_name:
 
 if args.resume:
 
-    # Resume existing experiment.
     resume_path = os.path.abspath(args.resume)
 
     if not os.path.isfile(resume_path):
@@ -297,24 +296,20 @@ if args.resume:
             f"Resume checkpoint not found: {resume_path}"
         )
 
-    # last.pt is inside the experiment directory.
-    args.save_path = os.path.dirname(resume_path)
+    checkpoint_dir = os.path.dirname(resume_path)
 
-    args.checkpoint_dir = os.path.join(
-        args.save_path,
-        "checkpoints",
-    )
+    if os.path.basename(checkpoint_dir) != "checkpoints":
+        raise ValueError(
+            "Expected resume checkpoint inside a 'checkpoints' directory, "
+            f"got: {resume_path}"
+        )
 
-    os.makedirs(
-        args.checkpoint_dir,
-        exist_ok=True,
-    )
-
+    args.save_path = os.path.dirname(checkpoint_dir)
+    args.checkpoint_dir = checkpoint_dir
 
     args.exp_name = os.path.basename(
         os.path.normpath(args.save_path)
     )
-
     args.wandb_name = args.exp_name
 
     print()

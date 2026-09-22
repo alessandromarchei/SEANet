@@ -6,8 +6,8 @@ set -euo pipefail
 # SEANet visual embedding FPS sweep
 # ============================================================
 
-VIDEO_ROOT="/scratch_nvme/VoxCeleb2-2Mix/orig/train"
-OUTPUT_BASE="/home/ale/datasets"
+VIDEO_ROOT="/home/sergey/DEV/AI/datasets/VoxCeleb2-2Mix/orig/train"
+OUTPUT_BASE="/home/sergey/DEV/AI/datasets/VoxCeleb2-2Mix/"
 VISUAL_FRONTEND="pretrain_networks/visual_frontend.pt"
 
 SOURCE_FPS=25
@@ -46,7 +46,9 @@ for FPS in "${FPS_VALUES[@]}"; do
         --visual_frontend "${VISUAL_FRONTEND}" \
         --fps "${FPS}" \
         --source_fps "${SOURCE_FPS}" \
-        --data_list "configs/data_list.csv"
+        --data_list "configs/data_list.csv" \
+        --workers 16 \
+        --prefetch_factor 2
 
     echo
     echo "[OK] ${FPS} FPS completed."
