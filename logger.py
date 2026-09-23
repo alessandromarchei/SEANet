@@ -3,7 +3,7 @@ from pathlib import Path
 
 import torch
 import wandb
-
+import numpy as np
 
 class WandbLogger:
     def __init__(
@@ -152,6 +152,9 @@ class WandbLogger:
             },
             ...
         ]
+
+        The model estimate is peak-normalized ONLY for listening
+        in W&B. The original tensor is not modified.
         """
 
         if not self.enabled:
@@ -166,31 +169,78 @@ class WandbLogger:
             ]
         )
 
-        for i, example in enumerate(examples):
-            name = example.get("name", f"sample_{i:02d}")
+        def to_numpy(x):
+            if isinstance(x, torch.Tensor):
+                x = (
+                    x.detach()
+                    .float()
+                    .cpu()
+                    .squeeze()
+                    .numpy()
+                )
 
-            def to_numpy(x):
-                if isinstance(x, torch.Tensor):
-                    x = x.detach().float().cpu().squeeze().numpy()
-                return x
+            return x
+
+        def normalize_for_listening(x, peak_target=0.95):
+            """
+            Peak-normalize audio for listening.
+
+            Equivalent to the normalization used by save_wav(...):
+                audio = 0.95 * audio / peak
+
+            This does NOT affect training or evaluation metrics.
+            """
+            x = to_numpy(x)
+
+            if not np.all(np.isfinite(x)):
+                raise ValueError(
+                    "Non-finite values found in audio sent to W&B"
+                )
+
+            peak = np.max(np.abs(x))
+
+            if peak > 0:
+                x = peak_target * x / peak
+
+            return x
+
+        for i, example in enumerate(examples):
+
+            name = example.get(
+                "name",
+                f"sample_{i:02d}",
+            )
+
+            mixture = to_numpy(
+                example["mixture"]
+            )
+
+            # Normalize model output ONLY for listening
+            estimate = normalize_for_listening(
+                example["estimate"]
+            )
+
+            target = to_numpy(
+                example["target"]
+            )
 
             table.add_data(
                 name,
 
                 wandb.Audio(
-                    to_numpy(example["mixture"]),
+                    mixture,
                     sample_rate=sample_rate,
                     caption=f"{name} - mixture",
                 ),
 
                 wandb.Audio(
-                    to_numpy(example["estimate"]),
+                    estimate,
                     sample_rate=sample_rate,
                     caption=f"{name} - SEANet",
                 ),
 
                 wandb.Audio(
-                    to_numpy(example["target"]),
+                    target,
                     sample_rate=sample_rate,
                     caption=f"{name} - GT",
                 ),

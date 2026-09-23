@@ -1319,13 +1319,6 @@ class trainer(nn.Module):
                 val_time=eval_time,
             )
 
-
-
-
-
-
-
-
             if len(audio_examples) > 0:
 
                 audio_examples = sorted(
@@ -1341,93 +1334,6 @@ class trainer(nn.Module):
                     epoch=args.epoch,
                     examples=audio_examples,
                     sample_rate=16000,
-                )
-
-                # ========================================================
-                # Save validation audio locally
-                # ========================================================
-
-                audio_dir = os.path.join(
-                    args.save_path,
-                    "validation_audio",
-                    f"epoch_{args.epoch:03d}",
-                )
-
-                os.makedirs(
-                    audio_dir,
-                    exist_ok=True,
-                )
-
-                for example in audio_examples:
-
-                    name = example["name"]
-
-                    # ----------------------------------------------------
-                    # Mixture
-                    # Already normalized by the dataset loader.
-                    # ----------------------------------------------------
-
-                    save_wav(
-                        os.path.join(
-                            audio_dir,
-                            f"{name}_mixture.wav",
-                        ),
-                        example["mixture"],
-                        normalize=True,
-                        subtype="PCM_16",
-                    )
-
-                    # ----------------------------------------------------
-                    # Ground-truth target
-                    # ----------------------------------------------------
-
-                    save_wav(
-                        os.path.join(
-                            audio_dir,
-                            f"{name}_target.wav",
-                        ),
-                        example["target"],
-                        normalize=True,
-                        subtype="PCM_16",
-                    )
-
-                    # ----------------------------------------------------
-                    # Raw model output
-                    #
-                    # IMPORTANT:
-                    # FLOAT preserves the actual network output.
-                    # No clipping to [-1, 1].
-                    # ----------------------------------------------------
-
-                    save_wav(
-                        os.path.join(
-                            audio_dir,
-                            f"{name}_estimate_float.wav",
-                        ),
-                        example["estimate"],
-                        normalize=False,
-                        subtype="FLOAT",
-                    )
-
-                    # ----------------------------------------------------
-                    # Listening version
-                    #
-                    # Peak-normalized to 0.95 before writing PCM16.
-                    # This is the one you should listen to.
-                    # ----------------------------------------------------
-
-                    save_wav(
-                        os.path.join(
-                            audio_dir,
-                            f"{name}_estimate_listen.wav",
-                        ),
-                        example["estimate"],
-                        normalize=True,
-                        subtype="PCM_16",
-                    )
-
-                print(
-                    f"Validation audio saved to: {audio_dir}"
                 )
         
         
