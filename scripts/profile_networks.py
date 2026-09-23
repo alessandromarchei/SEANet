@@ -9,8 +9,7 @@ import sys
 import torch
 import torch.nn as nn
 
-from fvcore.nn import FlopCountAnalysis
-
+from ptflops import get_model_complexity_info
 
 # ============================================================
 # Add SEANet repository root to Python path
@@ -23,6 +22,25 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 
+
+
+class AVModelWrapper(nn.Module):
+    """
+    Wrapper used only for ptflops.
+
+    It gives ptflops a simple forward signature while preserving
+    positional arguments for the original AV-TSE model.
+    """
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, av_inputs):
+        audio, visual = av_inputs
+        return self.model(audio, visual)
+
+        
 # ============================================================
 # Utilities
 # ============================================================
@@ -154,38 +172,9 @@ def load_visual_frontend(weights=None):
 
     return model
 
-
-# ============================================================
-# FLOP profiling
-# ============================================================
-
-def profile_module(model, inputs):
-
-    model.eval()
-
-    with torch.no_grad():
-
-        analysis = FlopCountAnalysis(
-            model,
-            inputs
-        )
-
-        # Do NOT fail because some bookkeeping operations
-        # are unsupported.
-        analysis.unsupported_ops_warnings(False)
-        analysis.uncalled_modules_warnings(False)
-
-        flops = analysis.total()
-
-        unsupported = analysis.unsupported_ops()
-
-    return flops, unsupported
-
-
 # ============================================================
 # AV model
 # ============================================================
-
 def profile_av_model(
     model,
     duration,
@@ -203,35 +192,65 @@ def profile_av_model(
         int(round(duration * fps))
     )
 
-    audio = torch.randn(
-        1,
-        n_samples,
-        device=device
-    )
-
-    visual = torch.randn(
-        1,
-        n_frames,
-        512,
-        device=device
-    )
-
     model = model.to(device).eval()
 
-    flops, unsupported = profile_module(
-        model,
-        (audio, visual)
-    )
+    wrapped_model = AVModelWrapper(model)
+    wrapped_model = wrapped_model.to(device).eval()
+
+    def input_constructor(input_res):
+
+        audio = torch.randn(
+            1,
+            n_samples,
+            device=device
+        )
+
+        visual = torch.randn(
+            1,
+            n_frames,
+            512,
+            device=device
+        )
+
+        # ptflops will call:
+        #
+        # wrapped_model(av_inputs=(audio, visual))
+        #
+        # and the wrapper will call:
+        #
+        # original_model(audio, visual)
+
+        return {
+            "av_inputs": (audio, visual)
+        }
+
+    with torch.no_grad():
+
+        macs, params = get_model_complexity_info(
+            wrapped_model,
+            (1,),
+            input_constructor=input_constructor,
+            as_strings=False,
+            print_per_layer_stat=False,
+            verbose=True,
+            backend="pytorch",
+        )
+
+    if macs is None:
+        raise RuntimeError(
+            "ptflops failed to compute MACs. "
+            "Check the error printed above."
+        )
 
     return {
-        "flops": flops,
-        "gflops": flops / 1e9,
-        "gflops_per_second": (
-            flops / duration / 1e9
+        "macs": macs,
+        "gmacs": macs / 1e9,
+        "gmacs_per_second": (
+            macs / duration / 1e9
         ),
         "frames": n_frames,
         "samples": n_samples,
-        "unsupported": unsupported,
+        "params_ptflops": params,
     }
 
 
@@ -263,41 +282,56 @@ def profile_visual_frontend(
         int(round(duration * fps))
     )
 
-    # IMPORTANT:
-    #
-    # This follows MuSE's preprocessing:
-    #
-    # input before VisualFrontend:
-    #
-    # [T, 1, 1, 112, 112]
-    #
-    # The frontend itself performs temporal Conv3D.
-    #
-    video = torch.randn(
-        n_frames,
-        1,
-        1,
-        roi_size,
-        roi_size,
-        device=device
-    )
-
     frontend = frontend.to(device).eval()
 
-    flops, unsupported = profile_module(
-        frontend,
-        (video,)
-    )
+    # VisualFrontend expects:
+    #
+    # [T, B, C, H, W]
+    #
+    # and internally converts it to:
+    #
+    # [B, C, T, H, W]
+    #
+    # Therefore:
+    #
+    # [n_frames, 1, 1, 112, 112]
+
+    def input_constructor(input_res):
+
+        video = torch.randn(
+            n_frames,
+            1,
+            1,
+            roi_size,
+            roi_size,
+            device=device
+        )
+
+        # VisualFrontend.forward(inputBatch)
+        return {
+            "inputBatch": video
+        }
+
+    with torch.no_grad():
+
+        macs, params = get_model_complexity_info(
+            frontend,
+            (1,),
+            input_constructor=input_constructor,
+            as_strings=False,
+            print_per_layer_stat=False,
+            verbose=True,
+            backend="pytorch",
+        )
 
     return {
-        "flops": flops,
-        "gflops": flops / 1e9,
-        "gflops_per_second":
-            flops / duration / 1e9,
+        "macs": macs,
+        "gmacs": macs / 1e9,
+        "gmacs_per_second":
+            macs / duration / 1e9,
         "frames": n_frames,
-        "unsupported": unsupported,
+        "params_ptflops": params,
     }
-
 
 # ============================================================
 # Pretty printing
@@ -468,20 +502,20 @@ def main():
             print("-" * 76)
 
             print(
-                f"GFLOPs / input      : "
-                f"{backend['gflops']:.4f}"
+                f"GMACs / input       : "
+                f"{backend['gmacs']:.4f}"
             )
 
             print(
-                f"GFLOPs / second     : "
-                f"{backend['gflops_per_second']:.4f}"
+                f"GMACs / second      : "
+                f"{backend['gmacs_per_second']:.4f}"
             )
 
-            if backend["unsupported"]:
-                print(
-                    "Unsupported ops      : "
-                    f"{backend['unsupported']}"
-                )
+            # if backend["unsupported"]:
+            #     print(
+            #         "Unsupported ops      : "
+            #         f"{backend['unsupported']}"
+            #     )
 
             # -----------------------------------------------
             # Visual frontend
@@ -506,40 +540,40 @@ def main():
                 )
 
                 print(
-                    f"GFLOPs / input      : "
-                    f"{vf['gflops']:.4f}"
+                    f"GMACs / input       : "
+                    f"{vf['gmacs']:.4f}"
                 )
 
                 print(
-                    f"GFLOPs / second     : "
-                    f"{vf['gflops_per_second']:.4f}"
+                    f"GMACs / second      : "
+                    f"{vf['gmacs_per_second']:.4f}"
                 )
 
                 print(
-                    f"GFLOPs / frame      : "
-                    f"{vf['flops'] / vf['frames'] / 1e9:.4f}"
+                    f"GMACs / frame avg.  : "
+                    f"{vf['macs'] / vf['frames'] / 1e9:.4f}"
                 )
 
-                if vf["unsupported"]:
-                    print(
-                        "Unsupported ops      : "
-                        f"{vf['unsupported']}"
-                    )
+                # if vf["unsupported"]:
+                #     print(
+                #         "Unsupported ops      : "
+                #         f"{vf['unsupported']}"
+                #     )
 
                 # -------------------------------------------
                 # Total
                 # -------------------------------------------
 
-                total_gflops = (
-                    backend["gflops"]
+                total_gmacs = (
+                    backend["gmacs"]
                     +
-                    vf["gflops"]
+                    vf["gmacs"]
                 )
 
-                total_gflops_s = (
-                    backend["gflops_per_second"]
+                total_gmacs_s = (
+                    backend["gmacs_per_second"]
                     +
-                    vf["gflops_per_second"]
+                    vf["gmacs_per_second"]
                 )
 
                 total_params_e2e = (
@@ -559,21 +593,21 @@ def main():
                 )
 
                 print(
-                    f"Total GFLOPs/input  : "
-                    f"{total_gflops:.4f}"
+                    f"Total GMACs/input   : "
+                    f"{total_gmacs:.4f}"
                 )
 
                 print(
-                    f"Total GFLOPs/sec    : "
-                    f"{total_gflops_s:.4f}"
+                    f"Total GMACs/sec     : "
+                    f"{total_gmacs_s:.4f}"
                 )
 
                 visual_percentage = (
                     100.0
-                    * vf["gflops_per_second"]
-                    / total_gflops_s
+                    * vf["gmacs_per_second"]
+                    / total_gmacs_s
                 )
-
+                
                 print(
                     f"Visual frontend     : "
                     f"{visual_percentage:.2f}% "

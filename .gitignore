@@ -118,3 +118,5 @@ venv.bak/
 .mypy_cache/
 
 runs/
+
+gen_dataset_sweep.sh

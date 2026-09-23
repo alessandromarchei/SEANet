@@ -1,0 +1,167 @@
+(swiftnet) sergey@sergey-Predator-PO7-660:~/repos/SEANet$ python scripts/datasets/VoxCeleb2/analyze_list.py configs/data_list.csv 
+
+File: /home/sergey/repos/SEANet/configs/data_list.csv
+
+==============================================================================
+DATASET OVERVIEW
+==============================================================================
+Total mixtures: 28,000
+
+Split           Mixtures         %    Speakers    Target utts       All utts
+----------------------------------------------------------------------------
+test               3,000    10.71%         118          2,876          5,515
+train             20,000    71.43%         800         20,000         40,000
+val                5,000    17.86%         800          4,901          9,600
+
+==============================================================================
+SOURCE SPLITS
+==============================================================================
+
+[test]
+  Target:
+    test            3,000
+  Interferer:
+    test            3,000
+
+[train]
+  Target:
+    train          20,000
+  Interferer:
+    train          20,000
+
+[val]
+  Target:
+    train           5,000
+  Interferer:
+    train           5,000
+
+==============================================================================
+TARGET / INTERFERER SPEAKER ROLES
+==============================================================================
+
+[test]
+  Target speakers:       118
+  Interferer speakers:   118
+  Speakers in both roles: 118
+  Target-only speakers:  0
+  Interferer-only:       0
+
+[train]
+  Target speakers:       800
+  Interferer speakers:   800
+  Speakers in both roles: 800
+  Target-only speakers:  0
+  Interferer-only:       0
+
+[val]
+  Target speakers:       800
+  Interferer speakers:   800
+  Speakers in both roles: 800
+  Target-only speakers:  0
+  Interferer-only:       0
+
+==============================================================================
+UTTERANCE REUSE WITHIN EACH SPLIT
+==============================================================================
+
+[test]
+  Unique target utterances:       2,876
+  Unique interferer utterances:   2,873
+  Unique utterances overall:      5,515
+  Repeated target utterances:     120
+  Utterances used >1 time:        459
+  Used as target AND interferer:  234
+
+[train]
+  Unique target utterances:       20,000
+  Unique interferer utterances:   20,000
+  Unique utterances overall:      40,000
+  Repeated target utterances:     0
+  Utterances used >1 time:        0
+  Used as target AND interferer:  0
+
+[val]
+  Unique target utterances:       4,901
+  Unique interferer utterances:   4,906
+  Unique utterances overall:      9,600
+  Repeated target utterances:     96
+  Utterances used >1 time:        391
+  Used as target AND interferer:  207
+
+==============================================================================
+PAIRWISE SPLIT INDEPENDENCE
+==============================================================================
+
+TEST  <->  TRAIN
+------------------------------------------------------------------------------
+All-speaker overlap:              0
+Target-speaker overlap:           0
+Any utterance overlap:            0
+Target utterance overlap:         0
+test target -> train interferer: 0
+train target -> test interferer: 0
+
+Speaker-independent:              YES
+Utterance-independent:            YES
+
+TEST  <->  VAL
+------------------------------------------------------------------------------
+All-speaker overlap:              0
+Target-speaker overlap:           0
+Any utterance overlap:            0
+Target utterance overlap:         0
+test target -> val interferer: 0
+val target -> test interferer: 0
+
+Speaker-independent:              YES
+Utterance-independent:            YES
+
+TRAIN  <->  VAL
+------------------------------------------------------------------------------
+All-speaker overlap:              800
+Target-speaker overlap:           800
+Any utterance overlap:            0
+Target utterance overlap:         0
+train target -> val interferer: 0
+val target -> train interferer: 0
+
+Speaker-independent:              NO
+Utterance-independent:            YES
+
+  Example shared speakers:
+      id00015
+      id00020
+      id00022
+      id00029
+      id00043
+      id00060
+      id00062
+      id00064
+      id00076
+      id00078
+      ... +790 more
+
+==============================================================================
+SNR / DURATION
+==============================================================================
+
+[test]
+  SNR:      min=-9.987, mean=0.098, max=9.979
+  Duration: min=4.032s, mean=5.737s, max=30.976s
+
+[train]
+  SNR:      min=-9.999, mean=0.002, max=9.999
+  Duration: min=4.032s, mean=5.885s, max=48.896s
+
+[val]
+  SNR:      min=-9.996, mean=-0.013, max=9.999
+  Duration: min=4.032s, mean=5.876s, max=38.272s
+
+==============================================================================
+INDEPENDENCE SUMMARY
+==============================================================================
+Pair                     Speaker independent    Utterance independent
+------------------------------------------------------------------------
+test <-> train                           YES                      YES
+test <-> val                             YES                      YES
+train <-> val                             NO                      YES

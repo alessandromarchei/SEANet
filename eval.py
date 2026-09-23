@@ -21,6 +21,82 @@ from model.avsep import avsep
 from model.seanet import seanet
 
 
+
+def infer_visual_fps_from_path(visual_path):
+    """
+    Infer visual FPS from a directory component in visual_path.
+
+    Examples:
+        /data/Vox2/25fps/
+            -> 25.0
+
+        /data/Vox2/12.5fps/
+            -> 12.5
+
+        /data/Vox2/visual_15fps/
+            -> 15.0
+
+    Raises RuntimeError if no FPS value can be inferred.
+    """
+
+    path = os.path.normpath(str(visual_path))
+
+    # Match:
+    #   25fps
+    #   12.5fps
+    #   visual_25fps
+    #   vox2_12.5fps
+    #
+    # but avoid accidentally matching arbitrary text after "fps".
+    pattern = re.compile(
+        r"(?:^|[^0-9.])"
+        r"([0-9]+(?:\.[0-9]+)?)"
+        r"fps"
+        r"(?:$|[^a-zA-Z0-9])",
+        re.IGNORECASE,
+    )
+
+    matches = pattern.findall(path)
+
+    if not matches:
+        raise RuntimeError(
+            "Could not infer visual FPS from --visual_path.\n"
+            f"visual_path: {visual_path}\n"
+            "\n"
+            "Expected the path to contain an FPS identifier such as:\n"
+            "  /path/to/25fps/\n"
+            "  /path/to/12.5fps/\n"
+            "\n"
+            "Alternatively specify it explicitly with:\n"
+            "  --visual_fps <fps>"
+        )
+
+    # Avoid silently choosing one if path contains conflicting values.
+    fps_values = {
+        float(value)
+        for value in matches
+    }
+
+    if len(fps_values) > 1:
+        raise RuntimeError(
+            "Multiple different FPS values found in --visual_path.\n"
+            f"visual_path: {visual_path}\n"
+            f"values: {sorted(fps_values)}\n"
+            "\n"
+            "Specify the desired value explicitly with:\n"
+            "  --visual_fps <fps>"
+        )
+
+    fps = fps_values.pop()
+
+    if fps <= 0:
+        raise RuntimeError(
+            f"Invalid visual FPS inferred from path: {fps}"
+        )
+
+    return fps
+
+
 # ============================================================
 # Arguments
 # ============================================================
@@ -64,7 +140,7 @@ parser.add_argument(
 parser.add_argument(
     "--data_list",
     type=str,
-    required=True,
+    default="configs/data_list.csv",
 )
 
 parser.add_argument(
@@ -80,12 +156,6 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--musan_path",
-    type=str,
-    default="",
-)
-
-parser.add_argument(
     "--length",
     type=float,
     default=4.0,
@@ -94,15 +164,25 @@ parser.add_argument(
 parser.add_argument(
     "--batch_size",
     type=int,
-    default=6,
+    default=16,
 )
 
 parser.add_argument(
     "--n_cpu",
     type=int,
-    default=12,
+    default=16,
 )
 
+parser.add_argument(
+    "--visual_fps",
+    type=float,
+    default=None,
+    help=(
+        "Visual frame rate. If omitted, it is inferred from "
+        "--visual_path using a directory name such as "
+        "'25fps' or '12.5fps'."
+    ),
+)
 
 # ------------------------------------------------------------
 # Output
@@ -111,7 +191,7 @@ parser.add_argument(
 parser.add_argument(
     "--output_dir",
     type=str,
-    default="eval_outputs",
+    default="runs/evals/",
     help="Directory where evaluation results are saved",
 )
 
@@ -155,6 +235,17 @@ parser.add_argument(
     ],
     default="default",
 )
+
+parser.add_argument(
+    "--split",
+    choices=[
+        "train",
+        "val",
+        "test",
+    ],
+    default="test",
+)
+
 
 parser.add_argument(
     "--tf32",
@@ -1191,31 +1282,72 @@ def main():
         "Initializing test DataLoader..."
     )
 
+    # ========================================================
+    # Visual FPS
+    # ========================================================
+
+    if args.visual_fps is None:
+
+        args.visual_fps = infer_visual_fps_from_path(
+            args.visual_path
+        )
+
+        print(
+            f"Visual FPS:  {args.visual_fps:g} "
+            f"(inferred from visual_path)"
+        )
+
+    else:
+
+        if args.visual_fps <= 0:
+            raise ValueError(
+                f"--visual_fps must be > 0, got "
+                f"{args.visual_fps}"
+            )
+
+        print(
+            f"Visual FPS:  {args.visual_fps:g} "
+            f"(provided via CLI)"
+        )
+
     loader_args = init_loader(
         args
     )
 
+    if args.split == "test":
+        loader_name = "testLoader"
+    elif args.split == "train":
+        loader_name = "trainLoader"
+    elif args.split == "val":
+        loader_name = "valLoader"
+    else:
+        raise RuntimeError(
+            "init_loader() failed due to wrong args.split"
+        )    
+
+     
     if not hasattr(
         loader_args,
-        "testLoader",
+        loader_name,
     ):
 
         raise RuntimeError(
             "init_loader() did not create args.testLoader."
         )
 
-    test_loader = (
-        loader_args.testLoader
+    loader = getattr(
+        loader_args,
+        loader_name,
     )
 
     print(
         f"Test dataset samples: "
-        f"{len(test_loader.dataset)}"
+        f"{len(loader.dataset)}"
     )
 
     print(
         f"Test batches: "
-        f"{len(test_loader)}"
+        f"{len(loader)}"
     )
 
     # ========================================================
@@ -1233,7 +1365,7 @@ def main():
 
     if (
         len(test_names)
-        != len(test_loader.dataset)
+        != len(loader.dataset)
     ):
 
         print()
@@ -1255,7 +1387,7 @@ def main():
 
     evaluate(
         model,
-        test_loader,
+        loader,
         test_names,
     )
 
