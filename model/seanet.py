@@ -82,29 +82,131 @@ class Extractor(nn.Module):
         
         self.adder = Adder(N, B) 
 
-    def forward(self, x, visual, M):        
+    def forward(self, x, visual, M):
         M, N, P = x.size()
+
+        # ---------------------------------------------------------
+        # Visual processing
+        # ---------------------------------------------------------
+
+        # [B, Tv, 512] -> [B, Tv, N]
         visual = self.v_ds(visual)
-        visual = visual.transpose(1,2)
+
+        # [B, Tv, N] -> [B, N, Tv]
+        visual = visual.transpose(1, 2)
+
+        # Temporal visual processing at the ORIGINAL visual FPS.
         visual = self.v_conv(visual)
-        visual = F.interpolate(visual, (P), mode='linear')
+
+        # ---------------------------------------------------------
+        # Zero-order hold:
+        #
+        # Keep each visual embedding constant until the next
+        # visual embedding becomes available.
+        #
+        # [B, N, Tv] -> [B, N, P]
+        # ---------------------------------------------------------
+
+        T_visual = visual.size(-1)
+
+        indices = torch.floor(
+            torch.arange(
+                P,
+                device=visual.device,
+                dtype=torch.float32,
+            )
+            * T_visual
+            / P
+        ).long()
+
+        indices = indices.clamp(
+            min=0,
+            max=T_visual - 1,
+        )
+
+        visual = visual.index_select(
+            dim=-1,
+            index=indices,
+        )
+
+        # ---------------------------------------------------------
+        # Audio
+        # ---------------------------------------------------------
+
         x = self.layer_norm(x)
         x = self.bottleneck_conv1x1(x)
-        x = torch.cat((x, visual),1)
-        x = self.av_conv(x)
-        x, gap = self._Segmentation(x, self.K)
 
-        all_x_s, all_x_n = [], []
+        # ---------------------------------------------------------
+        # AV fusion
+        # ---------------------------------------------------------
+
+        x = torch.cat(
+            (x, visual),
+            dim=1,
+        )
+
+        x = self.av_conv(x)
+        x, gap = self._Segmentation(
+            x,
+            self.K,
+        )
+
+        # ---------------------------------------------------------
+        # Separation
+        # ---------------------------------------------------------
+
+        all_x_s = []
+        all_x_n = []
+
         x_s = self.rnn_s[0](x)
         x_n = self.rnn_n[0](x)
-        all_x_s.append(self.adder(x_s, gap, M, P))
-        all_x_n.append(self.adder(x_n, gap, M, P))
+
+        all_x_s.append(
+            self.adder(
+                x_s,
+                gap,
+                M,
+                P,
+            )
+        )
+
+        all_x_n.append(
+            self.adder(
+                x_n,
+                gap,
+                M,
+                P,
+            )
+        )
+
         for i in range(1, self.R):
-            x_s, x_n = self.cross[i](x_s, x_n)
+
+            x_s, x_n = self.cross[i](
+                x_s,
+                x_n,
+            )
+
             x_s = self.rnn_s[i](x_s)
             x_n = self.rnn_n[i](x_n)
-            all_x_s.append(self.adder(x_s, gap, M, P))
-            all_x_n.append(self.adder(x_n, gap, M, P))
+
+            all_x_s.append(
+                self.adder(
+                    x_s,
+                    gap,
+                    M,
+                    P,
+                )
+            )
+
+            all_x_n.append(
+                self.adder(
+                    x_n,
+                    gap,
+                    M,
+                    P,
+                )
+            )
+
         return all_x_s, all_x_n
 
     def _padding(self, input, K):
