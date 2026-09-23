@@ -13,10 +13,6 @@ AUDIO_EXTENSIONS = {
     ".flac",
 }
 
-VISUAL_EXTENSIONS = {
-    ".npy",
-    ".npz",
-}
 
 
 def parse_args():
@@ -51,16 +47,6 @@ def parse_args():
         ),
     )
 
-    parser.add_argument(
-        "--visual-root",
-        type=Path,
-        required=True,
-        help=(
-            "Root containing visual features. "
-            "Expected layout compatible with "
-            "split/idXXXXX/video/utterance.npy."
-        ),
-    )
 
     parser.add_argument(
         "--num-val-speakers",
@@ -297,34 +283,42 @@ def visual_num_frames(path):
 
 def collect_candidates(
     audio_files,
-    visual_files,
     forbidden_speakers,
     source_split,
     min_duration,
 ):
-    common_keys = (
-        set(audio_files)
-        & set(visual_files)
-    )
+    """
+    Collect usable audio utterances for the independent validation set.
+
+    Visual embeddings are intentionally not checked here. They are
+    precomputed independently and are expected to follow the same
+    speaker/utterance naming convention used by the SEANet loader.
+    """
 
     by_speaker = defaultdict(list)
 
-    print()
-    print(
-        f"Audio/visual common utterances: "
-        f"{len(common_keys):,}"
-    )
-
     duration_rejected = 0
     forbidden_rejected = 0
+    wrong_split = 0
 
-    for key in sorted(common_keys):
+    print()
+    print(
+        f"Audio utterances available: "
+        f"{len(audio_files):,}"
+    )
+
+    for key in sorted(audio_files):
 
         split, speaker, utterance = key
 
+        # We only want utterances coming from the requested
+        # VoxCeleb2 source split, normally "train".
         if split != source_split:
+            wrong_split += 1
             continue
 
+        # Validation speakers must be completely independent
+        # from both original train and original test speakers.
         if speaker in forbidden_speakers:
             forbidden_rejected += 1
             continue
@@ -347,22 +341,30 @@ def collect_candidates(
                 "utterance": utterance,
                 "duration": duration,
                 "audio": audio_files[key],
-                "visual": visual_files[key],
             }
         )
 
     print(
-        f"Forbidden-speaker utterances ignored: "
+        f"Utterances outside '{source_split}' ignored: "
+        f"{wrong_split:,}"
+    )
+
+    print(
+        f"Forbidden-speaker utterances:     "
         f"{forbidden_rejected:,}"
     )
 
     print(
-        f"Too-short/unreadable ignored: "
+        f"Too-short/unreadable utterances:  "
         f"{duration_rejected:,}"
     )
 
-    return by_speaker
+    print(
+        f"Usable independent utterances:    "
+        f"{sum(len(v) for v in by_speaker.values()):,}"
+    )
 
+    return by_speaker
 
 def select_validation_speakers(
     candidates,
@@ -588,10 +590,7 @@ def main():
             args.audio_root
         )
 
-    if not args.visual_root.is_dir():
-        raise NotADirectoryError(
-            args.visual_root
-        )
+
 
     if (
         args.output_csv.exists()
@@ -674,14 +673,8 @@ def main():
         AUDIO_EXTENSIONS,
     )
 
-    visual_files = scan_files(
-        args.visual_root,
-        VISUAL_EXTENSIONS,
-    )
-
     candidates = collect_candidates(
         audio_files=audio_files,
-        visual_files=visual_files,
         forbidden_speakers=forbidden_speakers,
         source_split=args.audio_split,
         min_duration=args.min_duration,
