@@ -13,6 +13,41 @@ import torch
 SAMPLE_RATE = 16000
 
 
+def load_visual_for_duration(
+    path,
+    duration,
+    visual_fps,
+):
+    face = np.load(path)
+
+    expected_frames = int(
+        duration * visual_fps
+    )
+
+    if face.shape[0] < expected_frames:
+
+        shortage = (
+            expected_frames
+            - face.shape[0]
+        )
+
+        face = np.pad(
+            face,
+            (
+                (0, shortage),
+                (0, 0),
+            ),
+            mode="edge",
+        )
+
+    face = face[
+        :expected_frames,
+        :
+    ]
+
+    return face
+
+
 # ============================================================
 # DataLoaders
 # ============================================================
@@ -80,7 +115,7 @@ def load_audio(path, length):
 
     audio, _ = soundfile.read(path)
 
-    max_audio = int(round(length * SAMPLE_RATE))
+    max_audio = int(length * SAMPLE_RATE)
 
     if audio.shape[0] < max_audio:
         shortage = max_audio - audio.shape[0]
@@ -848,8 +883,10 @@ class test_loader(object):
         )
 
         # Keep the actual number of generated visual embeddings.
-        face = load_visual(
+        face = load_visual_for_duration(
             path=visual_path,
+            duration=all_length,
+            visual_fps=self.visual_fps,
         )
 
         # ----------------------------------------------------
