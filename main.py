@@ -267,7 +267,7 @@ parser.add_argument(
 parser.add_argument(
     "--visual_fps",
     type=float,
-    choices=[25.0, 20.0, 17.5, 15.0, 12.5],
+    choices=[25.0, 20.0, 17.5, 15.0, 12.5, 10, 6],
     default=25.0,
     help="Rate at which the visual embeddings are arriving",
 )
