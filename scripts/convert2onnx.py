@@ -43,6 +43,39 @@ class SEANetWrapper(nn.Module):
         return speech, noise
 
 
+def inspect_onnx_metadata(path, max_nodes=50):
+    import onnx
+
+    model = onnx.load(
+        path,
+        load_external_data=False,
+    )
+
+    print()
+    print("=" * 100)
+    print("ONNX NODE METADATA")
+    print("=" * 100)
+
+    for i, node in enumerate(model.graph.node[:max_nodes]):
+
+        print()
+        print(
+            f"[{i:04d}] "
+            f"{node.op_type:<25} "
+            f"name={node.name}"
+        )
+
+        if not node.metadata_props:
+            print("    metadata: NONE")
+            continue
+
+        for prop in node.metadata_props:
+            print(
+                f"    {prop.key}: "
+                f"{prop.value}"
+            )
+
+
 class FullSEANetWrapper(nn.Module):
     """
     Complete pipeline:
@@ -245,6 +278,195 @@ def load_weights(model, path, name):
 # ============================================================
 # Export
 # ============================================================
+
+
+def simplify_onnx_model(
+    input_path,
+    output_path=None,
+):
+
+    try:
+        import onnx
+        import onnxsim
+
+    except ImportError as exc:
+        raise RuntimeError(
+            "ONNX simplification requested but "
+            "onnx/onnxsim is not installed.\n"
+            "Install with:\n"
+            "  pip install onnx onnxsim"
+        ) from exc
+
+    if output_path is None:
+
+        base, ext = os.path.splitext(
+            input_path
+        )
+
+        output_path = (
+            base + "_simplified" + ext
+        )
+
+    print()
+    print("=" * 80)
+    print("ONNX SIMPLIFICATION")
+    print("=" * 80)
+
+    print(
+        f"Input:  {input_path}"
+    )
+
+    print(
+        f"Output: {output_path}"
+    )
+
+    original_size = (
+        os.path.getsize(input_path)
+        / 1024**2
+    )
+
+    print(
+        f"Original size: "
+        f"{original_size:.2f} MiB"
+    )
+
+    print(
+        "Loading ONNX model...",
+        flush=True,
+    )
+
+    model = onnx.load(
+        input_path,
+        load_external_data=True,
+    )
+
+    original_nodes = len(
+        model.graph.node
+    )
+
+    original_initializers = len(
+        model.graph.initializer
+    )
+
+    print(
+        f"Original nodes:        "
+        f"{original_nodes}"
+    )
+
+    print(
+        f"Original initializers: "
+        f"{original_initializers}"
+    )
+
+    print(
+        "Running ONNX Simplifier...",
+        flush=True,
+    )
+
+    t0 = time.perf_counter()
+
+    simplified_model, check = (
+        onnxsim.simplify(
+            model,
+        )
+    )
+
+    elapsed = (
+        time.perf_counter()
+        - t0
+    )
+
+    if not check:
+
+        raise RuntimeError(
+            "ONNX Simplifier validation failed."
+        )
+
+    print(
+        f"Simplification completed "
+        f"in {elapsed:.2f} s"
+    )
+
+    # Validate again with ONNX itself.
+
+    onnx.checker.check_model(
+        simplified_model
+    )
+
+    print(
+        "Simplified ONNX checker: OK"
+    )
+
+    # Save everything in ONE .onnx file.
+    #
+    # No external-data file.
+
+    onnx.save_model(
+        simplified_model,
+        output_path,
+        save_as_external_data=False,
+    )
+
+    simplified_nodes = len(
+        simplified_model.graph.node
+    )
+
+    simplified_initializers = len(
+        simplified_model.graph.initializer
+    )
+
+    simplified_size = (
+        os.path.getsize(output_path)
+        / 1024**2
+    )
+
+    print()
+    print("-" * 80)
+
+    print(
+        f"Nodes:        "
+        f"{original_nodes} -> "
+        f"{simplified_nodes}"
+    )
+
+    print(
+        f"Initializers: "
+        f"{original_initializers} -> "
+        f"{simplified_initializers}"
+    )
+
+    print(
+        f"Size:         "
+        f"{original_size:.2f} -> "
+        f"{simplified_size:.2f} MiB"
+    )
+
+    if original_nodes > 0:
+
+        reduction = (
+            100.0
+            * (
+                original_nodes
+                - simplified_nodes
+            )
+            / original_nodes
+        )
+
+        print(
+            f"Node reduction: "
+            f"{reduction:.2f}%"
+        )
+
+    print("-" * 80)
+
+    print()
+    print(
+        f"Simplified ONNX: "
+        f"{output_path}"
+    )
+
+    return output_path
+
 
 def export(args):
 
@@ -534,11 +756,14 @@ def export(args):
 
         opset_version=args.opset,
 
-        do_constant_folding=True,
+        dynamo=True,
 
-        dynamic_axes=None,
+        external_data=False,
     )
-
+    inspect_onnx_metadata(
+        args.output,
+        max_nodes=50,
+    )
     elapsed = (
         time.perf_counter()
         - t0
@@ -603,6 +828,15 @@ def export(args):
         f"ONNX: {args.output}"
     )
 
+    if args.simplify:
+
+        simplified_path = args.output
+
+        simplify_onnx_model(
+            input_path=args.output,
+            output_path=simplified_path,
+        )
+
 
 # ============================================================
 # CLI
@@ -655,6 +889,15 @@ def parse_args():
         "--opset",
         type=int,
         default=18,
+    )
+
+    parser.add_argument(
+        "--simplify",
+        action="store_true",
+        help=(
+            "Run ONNX Simplifier after export and save "
+            "a *_simplified.onnx model."
+        ),
     )
 
     return parser.parse_args()
