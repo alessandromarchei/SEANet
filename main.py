@@ -272,6 +272,12 @@ parser.add_argument(
     help="Rate at which the visual embeddings are arriving",
 )
 
+parser.add_argument(
+    "--visual_embeddings_dim",
+    type=int,
+    default=512,
+    help="Embedding dimension for each frame. Default : 512. Choose 1024 for AV-Hubert",
+)
 # ============================================================
 # Parse arguments
 # ============================================================

@@ -201,6 +201,7 @@ class trainer(nn.Module):
                 128,
                 100,
                 6,
+                args.visual_embeddings_dim
             ).cuda()
 
         elif args.backbone == "avsep":

@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import math, copy
 
 class seanet(nn.Module):
-    def __init__(self, N = 256, L = 40, B = 64, H = 128, K = 100, R = 6):
+    def __init__(self, N = 256, L = 40, B = 64, H = 128, K = 100, R = 6, visual_embeddings_dim=512):
         '''
         Module list: Encoder - Decoder - Extractor
         '''
@@ -12,7 +12,7 @@ class seanet(nn.Module):
         self.N, self.L, self.B, self.H, self.K, self.R = N, L, B, H, K, R
         
         self.encoder   = Encoder(L, N)
-        self.separator = Extractor(N, L, B, H, K, R)
+        self.separator = Extractor(N, L, B, H, K, R, visual_embeddings_dim)
         self.decoder   = Decoder(N, L)
 
         for p in self.parameters():
@@ -60,7 +60,7 @@ class Decoder(nn.Module):
         return est_source
 
 class Extractor(nn.Module):
-    def __init__(self, N, L, B, H, K, R):
+    def __init__(self, N, L, B, H, K, R, visual_embeddings_dim=512):
         '''
         Module list: VisualConv1D - RNN - Cross - Adder
         '''
@@ -68,7 +68,7 @@ class Extractor(nn.Module):
         self.N, self.L, self.B, self.H, self.K, self.R = N, L, B, H, K, R
         self.layer_norm         = nn.GroupNorm(1, N, eps=1e-8)
         self.bottleneck_conv1x1 = nn.Conv1d(N, B, 1, bias=False)
-        self.v_ds               = nn.Linear(512, N, bias=False)
+        self.v_ds               = nn.Linear(visual_embeddings_dim, N, bias=False)
         stacks = []
         for x in range(5):
             stacks +=[VisualConv1D(V = N)]
