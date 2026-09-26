@@ -55,11 +55,22 @@ parser.add_argument(
     ),
 )
 
-parser.add_argument(
+frontend_group = parser.add_mutually_exclusive_group(
+    required=True
+)
+
+frontend_group.add_argument(
     "--visual_frontend",
     type=str,
-    required=True,
-    help="Path to visual_frontend.pt",
+    default=None,
+    help="Path to PyTorch visual frontend .pt",
+)
+
+frontend_group.add_argument(
+    "--visual_frontend_onnx",
+    type=str,
+    default=None,
+    help="Path to ONNX visual frontend .onnx",
 )
 
 parser.add_argument(
@@ -182,6 +193,19 @@ parser.add_argument(
         "resize: resize complete frame directly to 112x112"
     ),
 )
+
+
+parser.add_argument(
+    "--batch_size",
+    type=int,
+    default=16,
+    help=(
+        "Maximum number of videos processed together by the visual "
+        "frontend. Only videos having exactly the same sampled temporal "
+        "length are batched together. Default: 16."
+    ),
+)
+
 
 parser.add_argument(
     "--grayscale",
@@ -359,8 +383,17 @@ output_root = Path(args.output_root).resolve()
 if not video_root.is_dir():
     raise FileNotFoundError(video_root)
 
-if not os.path.isfile(args.visual_frontend):
-    raise FileNotFoundError(args.visual_frontend)
+if args.visual_frontend is not None:
+    if not os.path.isfile(args.visual_frontend):
+        raise FileNotFoundError(
+            args.visual_frontend
+        )
+
+if args.visual_frontend_onnx is not None:
+    if not os.path.isfile(args.visual_frontend_onnx):
+        raise FileNotFoundError(
+            args.visual_frontend_onnx
+        )
 
 output_root.mkdir(parents=True, exist_ok=True)
 
@@ -382,14 +415,13 @@ if args.save_rois:
 # Load visual frontend
 # ============================================================
 
-def load_visual_frontend(path, device):
-    """
-    Load the exact SEANet visual frontend architecture and its state_dict.
-    """
+
+def load_pytorch_visual_frontend(path, device):
 
     from pretrain_networks.visual_frontend import VisualFrontend
 
-    print("Loading visual frontend architecture...")
+    print("Loading PyTorch visual frontend architecture...")
+
     model = VisualFrontend()
 
     print(f"Loading visual frontend weights: {path}")
@@ -399,7 +431,6 @@ def load_visual_frontend(path, device):
         map_location="cpu",
     )
 
-    # visual_frontend.pt is directly an OrderedDict/state_dict
     model.load_state_dict(
         state_dict,
         strict=True,
@@ -408,17 +439,85 @@ def load_visual_frontend(path, device):
     model = model.to(device)
     model.eval()
 
-    print("Visual frontend loaded successfully.")
+    print("PyTorch visual frontend loaded successfully.")
 
     return model
 
 
+def load_onnx_visual_frontend(path, device):
+
+    import onnxruntime as ort
+
+    print(f"Loading ONNX visual frontend: {path}")
+
+    available = ort.get_available_providers()
+
+    if device.type == "cuda":
+
+        if "CUDAExecutionProvider" not in available:
+            raise RuntimeError(
+                "CUDA requested, but ONNX Runtime does not "
+                "have CUDAExecutionProvider.\n"
+                f"Available providers: {available}"
+            )
+
+        providers = [
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider",
+        ]
+
+    else:
+
+        providers = [
+            "CPUExecutionProvider",
+        ]
+
+    session = ort.InferenceSession(
+        path,
+        providers=providers,
+    )
+
+    print(
+        "ONNX Runtime providers: "
+        f"{session.get_providers()}"
+    )
+
+    print(
+        f"ONNX input:  "
+        f"{session.get_inputs()[0].name} "
+        f"{session.get_inputs()[0].shape}"
+    )
+
+    print(
+        f"ONNX output: "
+        f"{session.get_outputs()[0].name} "
+        f"{session.get_outputs()[0].shape}"
+    )
+
+    return session
+
+
+
+
 device = torch.device(args.device)
 
-visual_frontend = load_visual_frontend(
-    args.visual_frontend,
-    device,
-)
+if args.visual_frontend_onnx is not None:
+
+    frontend_backend = "onnx"
+
+    visual_frontend = load_onnx_visual_frontend(
+        args.visual_frontend_onnx,
+        device,
+    )
+
+else:
+
+    frontend_backend = "pytorch"
+
+    visual_frontend = load_pytorch_visual_frontend(
+        args.visual_frontend,
+        device,
+    )
 
 
 # ============================================================
@@ -533,6 +632,61 @@ def convert_to_grayscale(frame, method):
         )
 
     return gray
+
+def run_visual_frontend(x):
+
+    # ========================================================
+    # PyTorch
+    # ========================================================
+
+    if frontend_backend == "pytorch":
+
+        with torch.inference_mode():
+
+            return visual_frontend(x)
+
+    # ========================================================
+    # ONNX Runtime
+    # ========================================================
+
+    if frontend_backend == "onnx":
+
+        # x is intentionally still on CPU here.
+        x_np = (
+            x
+            .detach()
+            .numpy()
+            .astype(
+                np.float32,
+                copy=False,
+            )
+        )
+
+        input_name = (
+            visual_frontend
+            .get_inputs()[0]
+            .name
+        )
+
+        output_name = (
+            visual_frontend
+            .get_outputs()[0]
+            .name
+        )
+
+        output = visual_frontend.run(
+            [output_name],
+            {
+                input_name: x_np,
+            },
+        )[0]
+
+        return torch.from_numpy(output)
+
+    raise RuntimeError(
+        f"Unknown frontend backend: "
+        f"{frontend_backend}"
+    )
 
 
 def read_video_112(video_path):
@@ -768,6 +922,110 @@ def collate_single(sample_list):
 # Prepare input for visual frontend
 # ============================================================
 
+
+def prepare_visual_batch(frames_batch, device):
+    """
+    Prepare a batch of videos having EXACTLY the same temporal length.
+
+    Input:
+        frames_batch:
+            NumPy array [B,T,112,112]
+
+    Output:
+        PyTorch tensor [T,B,1,112,112]
+
+    No temporal padding is performed.
+    """
+
+    if not isinstance(frames_batch, np.ndarray):
+        frames_batch = np.stack(
+            frames_batch,
+            axis=0,
+        )
+
+    if frames_batch.ndim != 4:
+        raise RuntimeError(
+            f"Expected [B,T,H,W], got {frames_batch.shape}"
+        )
+
+    B, T, H, W = frames_batch.shape
+
+    if H != 112 or W != 112:
+        raise RuntimeError(
+            f"Expected spatial size 112x112, got {H}x{W}"
+        )
+
+    # [B,T,H,W]
+    x = torch.from_numpy(
+        frames_batch
+    ).float()
+
+    # ========================================================
+    # Same normalization as before
+    # ========================================================
+
+    if args.normalization == "zero_one":
+
+        x = x / 255.0
+
+    elif args.normalization == "minus_one_one":
+
+        x = x / 255.0
+        x = (x - 0.5) / 0.5
+
+    elif args.normalization == "raw":
+
+        pass
+
+    elif args.normalization == "mean_std":
+
+        x = x / 255.0
+
+        x = (
+            x - args.pixel_mean
+        ) / args.pixel_std
+
+    else:
+
+        raise ValueError(
+            f"Unknown normalization: "
+            f"{args.normalization}"
+        )
+
+    # --------------------------------------------------------
+    # [B,T,H,W]
+    # ->
+    # [T,B,1,H,W]
+    # --------------------------------------------------------
+
+    x = (
+        x
+        .permute(1, 0, 2, 3)
+        .unsqueeze(2)
+        .contiguous()
+    )
+
+    # IMPORTANT:
+    #
+    # PyTorch needs CUDA input.
+    #
+    # ONNX Runtime receives NumPy, therefore keeping the tensor
+    # on CPU avoids:
+    #
+    # CPU -> GPU -> CPU -> ORT -> GPU
+    #
+    # which the previous implementation was doing.
+
+    if frontend_backend == "pytorch":
+
+        x = x.to(
+            device,
+            non_blocking=True,
+        )
+
+    return x
+
+
 def prepare_visual_tensor(frames, device):
     """
     Input:
@@ -901,26 +1159,178 @@ def normalize_embedding_shape(
 # ============================================================
 # GPU processing of ONE preprocessed video
 # ============================================================
-
 @torch.inference_mode()
-def process_preprocessed_video(
-    video_path,
-    frames,
-    sampled_frames,
-    output_path,
-):
+def process_batch(samples):
     """
-    Run exactly the same frontend inference and save exactly
-    the same float32 NumPy embedding as the original script.
+    Process several videos having EXACTLY the same temporal length.
+
+    samples:
+        list of dictionaries returned by VideoDataset.
+
+    All samples MUST have identical sampled_frames.
+
+    Network input:
+        [T,B,1,112,112]
+
+    Network output:
+        [T,B,512]
+
+    Each output is saved independently as:
+        idXXXXX/video_id/utterance.npy
     """
 
-    video_path = Path(video_path)
+    if len(samples) == 0:
+        return 0
 
-    # --------------------------------------------------------
-    # Optional debugging cache
-    # --------------------------------------------------------
+    # ========================================================
+    # Verify temporal lengths
+    # ========================================================
+
+    lengths = [
+        int(sample["sampled_frames"])
+        for sample in samples
+    ]
+
+    T = lengths[0]
+
+    if any(length != T for length in lengths):
+        raise RuntimeError(
+            f"Mixed temporal lengths inside batch: {lengths}"
+        )
+
+    B = len(samples)
+
+    # ========================================================
+    # Optional ROI saving
+    # ========================================================
 
     if args.save_rois:
+
+        for sample in samples:
+
+            video_path = Path(
+                sample["video_path"]
+            )
+
+            relative = (
+                video_path
+                .relative_to(video_root)
+                .with_suffix(".npy")
+            )
+
+            roi_path = (
+                roi_root
+                / relative
+            )
+
+            roi_path.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
+            np.save(
+                roi_path,
+                sample["frames"],
+            )
+
+    # ========================================================
+    # Stack
+    #
+    # Each:
+    #     [T,112,112]
+    #
+    # Result:
+    #     [B,T,112,112]
+    # ========================================================
+
+    frames_batch = np.stack(
+        [
+            sample["frames"]
+            for sample in samples
+        ],
+        axis=0,
+    )
+
+    # ========================================================
+    # Prepare network input
+    #
+    # [B,T,H,W]
+    # ->
+    # [T,B,1,H,W]
+    # ========================================================
+
+    x = prepare_visual_batch(
+        frames_batch,
+        device,
+    )
+
+    # ========================================================
+    # Inference
+    #
+    # expected:
+    #     [T,B,512]
+    # ========================================================
+
+    output = run_visual_frontend(x)
+
+    if isinstance(output, (tuple, list)):
+        output = output[0]
+
+    if not torch.is_tensor(output):
+        raise RuntimeError(
+            f"Frontend returned {type(output)}, "
+            f"expected Tensor."
+        )
+
+    output = (
+        output
+        .detach()
+        .float()
+        .cpu()
+    )
+
+    # ========================================================
+    # Validate
+    # ========================================================
+
+    if output.ndim != 3:
+
+        raise RuntimeError(
+            f"Expected output [T,B,D], "
+            f"got {tuple(output.shape)}"
+        )
+
+    out_T, out_B, out_D = output.shape
+
+    if out_T != T:
+
+        raise RuntimeError(
+            f"Temporal mismatch: "
+            f"input T={T}, output T={out_T}"
+        )
+
+    if out_B != B:
+
+        raise RuntimeError(
+            f"Batch mismatch: "
+            f"input B={B}, output B={out_B}"
+        )
+
+    if out_D != 512:
+
+        raise RuntimeError(
+            f"Expected D=512, got D={out_D}"
+        )
+
+    # ========================================================
+    # Save individual embeddings
+    # ========================================================
+
+    for batch_index, sample in enumerate(samples):
+
+        video_path = Path(
+            sample["video_path"]
+        )
 
         relative = (
             video_path
@@ -928,64 +1338,34 @@ def process_preprocessed_video(
             .with_suffix(".npy")
         )
 
-        roi_path = (
-            roi_root
+        output_path = (
+            output_root
             / relative
         )
 
-        roi_path.parent.mkdir(
+        output_path.parent.mkdir(
             parents=True,
             exist_ok=True,
         )
 
-        np.save(
-            roi_path,
-            frames,
+        # [T,B,D]
+        # ->
+        # [T,D]
+
+        embedding = (
+            output[:, batch_index, :]
+            .numpy()
         )
 
-    # --------------------------------------------------------
-    # Visual frontend
-    #
-    # IMPORTANT:
-    # Conv3D sees exactly the same temporally downsampled frames
-    # as in the original script.
-    # --------------------------------------------------------
+        np.save(
+            output_path,
+            embedding.astype(
+                np.float32,
+                copy=False,
+            ),
+        )
 
-    x = prepare_visual_tensor(
-        frames,
-        device,
-    )
-
-    output = visual_frontend(x)
-
-    embedding = normalize_embedding_shape(
-        output,
-        expected_frames=sampled_frames,
-    )
-
-    # --------------------------------------------------------
-    # Save exactly as SEANet cache:
-    #
-    # idXXXXX/video_id/utterance.npy
-    # --------------------------------------------------------
-
-    output_path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    np.save(
-        output_path,
-        embedding.astype(
-            np.float32,
-            copy=False,
-        ),
-    )
-
-    return {
-        "embedding_frames": embedding.shape[0],
-        "embedding_dim": embedding.shape[1],
-    }
+    return B
 
 
 # ============================================================
@@ -1069,7 +1449,6 @@ if missing_videos:
 
 videos = existing_videos
 
-
 # ============================================================
 # Remove already-generated videos BEFORE DataLoader
 # ============================================================
@@ -1103,23 +1482,31 @@ for video_path in videos:
 # ============================================================
 # Information
 # ============================================================
+if frontend_backend == "onnx":
+    frontend_path = args.visual_frontend_onnx
+else:
+    frontend_path = args.visual_frontend
 
 print()
 print("SEANet visual embedding generation")
 print("==================================")
-print(f"Input root:      {video_root}")
-print(f"Output root:     {output_root}")
-print(f"Frontend:        {args.visual_frontend}")
-print(f"Source FPS:      {args.source_fps}")
-print(f"Target FPS:      {args.fps}")
-print(f"Videos total:    {len(videos)}")
-print(f"Already done:    {skipped}")
-print(f"To process:      {len(videos_to_process)}")
-print(f"Device:          {device}")
-print(f"CPU workers:     {args.workers}")
+print(f"Input root:       {video_root}")
+print(f"Output root:      {output_root}")
+print(f"Backend:          {frontend_backend.upper()}")
+print(f"Frontend:         {frontend_path}")
+print(f"Source FPS:       {args.source_fps}")
+print(f"Target FPS:       {args.fps}")
+print(f"Videos total:     {len(videos)}")
+print(f"Already done:     {skipped}")
+print(f"To process:       {len(videos_to_process)}")
+print(f"Device:           {device}")
+print(f"CPU workers:      {args.workers}")
 
 if args.workers > 0:
-    print(f"Prefetch/worker: {args.prefetch_factor}")
+    print(f"Prefetch/worker:  {args.prefetch_factor}")
+
+print()
+
 
 print()
 
@@ -1159,12 +1546,32 @@ else:
     )
 
 
+
+
+from collections import defaultdict
+
+
+# ============================================================
+# Temporal buckets
+#
+# key:
+#     number of sampled frames T
+#
+# value:
+#     list of preprocessed samples having exactly that T
+# ============================================================
+
+buckets = defaultdict(list)
+
+
 # ============================================================
 # Main loop
 # ============================================================
 
 success = 0
 failed = 0
+
+batches_processed = 0
 
 
 for sample in tqdm(
@@ -1178,9 +1585,9 @@ for sample in tqdm(
         sample["video_path"]
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # CPU preprocessing failure
-    # --------------------------------------------------------
+    # ========================================================
 
     if not sample["ok"]:
 
@@ -1194,44 +1601,113 @@ for sample in tqdm(
 
         continue
 
-    # --------------------------------------------------------
-    # Output path
-    # --------------------------------------------------------
+    # ========================================================
+    # Put sample into temporal bucket
+    # ========================================================
 
-    relative = (
-        video_path
-        .relative_to(video_root)
-        .with_suffix(".npy")
+    T = int(
+        sample["sampled_frames"]
     )
 
-    output_path = (
-        output_root
-        / relative
+    buckets[T].append(
+        sample
     )
 
-    # --------------------------------------------------------
-    # GPU inference + save
-    # --------------------------------------------------------
+    # ========================================================
+    # Bucket not full yet
+    # ========================================================
+
+    if len(buckets[T]) < args.batch_size:
+        continue
+
+    # ========================================================
+    # Full bucket -> GPU inference
+    # ========================================================
+
+    batch = buckets[T]
+
+    # Empty bucket immediately so references to the large
+    # frame arrays can be released after inference.
+    buckets[T] = []
 
     try:
 
-        process_preprocessed_video(
-            video_path=video_path,
-            frames=sample["frames"],
-            sampled_frames=sample["sampled_frames"],
-            output_path=output_path,
+        processed = process_batch(
+            batch
         )
 
-        success += 1
+        success += processed
+        batches_processed += 1
 
     except Exception as exc:
 
-        failed += 1
+        failed += len(batch)
 
         tqdm.write(
-            f"\nFAILED: {video_path}\n"
+            f"\nFAILED BATCH\n"
+            f"  T={T}\n"
+            f"  B={len(batch)}\n"
             f"  {type(exc).__name__}: {exc}\n"
         )
+
+
+# ============================================================
+# Flush incomplete buckets
+#
+# Example:
+#
+#   T=47 -> 16 processed
+#           16 processed
+#            7 remaining
+#
+# The final 7 are simply run as B=7.
+# ============================================================
+
+remaining = sum(
+    len(bucket)
+    for bucket in buckets.values()
+)
+
+print()
+print(
+    f"Flushing {remaining} videos "
+    f"from incomplete temporal buckets..."
+)
+
+
+# Process larger buckets first simply to make GPU utilization
+# better during the final flush.
+for T in sorted(
+    buckets.keys(),
+    reverse=True,
+):
+
+    bucket = buckets[T]
+
+    if len(bucket) == 0:
+        continue
+
+    try:
+
+        processed = process_batch(
+            bucket
+        )
+
+        success += processed
+        batches_processed += 1
+
+    except Exception as exc:
+
+        failed += len(bucket)
+
+        tqdm.write(
+            f"\nFAILED FINAL BATCH\n"
+            f"  T={T}\n"
+            f"  B={len(bucket)}\n"
+            f"  {type(exc).__name__}: {exc}\n"
+        )
+
+    buckets[T] = []
 
 
 # ============================================================
@@ -1241,7 +1717,9 @@ for sample in tqdm(
 print()
 print("Finished")
 print("========")
-print(f"Successful: {success}")
-print(f"Skipped:    {skipped}")
-print(f"Failed:     {failed}")
-print(f"Output:     {output_root}")
+print(f"Successful:       {success}")
+print(f"Skipped:          {skipped}")
+print(f"Failed:           {failed}")
+print(f"GPU batches:      {batches_processed}")
+print(f"Max batch size:   {args.batch_size}")
+print(f"Output:           {output_root}")
