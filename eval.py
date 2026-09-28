@@ -132,6 +132,12 @@ parser.add_argument(
     ],
 )
 
+parser.add_argument(
+    "--visual_embeddings_dim",
+    type=int,
+    default=512,
+    help="Per-frawme visual embedding dimension (default: 512)",
+)
 
 # ------------------------------------------------------------
 # Dataset
@@ -346,6 +352,7 @@ def build_model():
             128,
             100,
             6,
+            visual_embeddings_dim=args.visual_embeddings_dim
         )
 
     elif args.backbone == "dprnn":
