@@ -596,6 +596,30 @@ class train_loader(object):
                 data[-1]
             )
 
+            # ----------------------------------------------------
+            # Soft filtering based on available visual embeddings
+            #
+            # Keep the mixture only if BOTH target and interferer
+            # embeddings are available.
+            # ----------------------------------------------------
+
+            label_visual_path = os.path.join(
+                self.visual_path,
+                label_name + ".npy",
+            )
+
+            inter_visual_path = os.path.join(
+                self.visual_path,
+                inter_name1 + ".npy",
+            )
+
+            if not (
+                os.path.isfile(label_visual_path)
+                and os.path.isfile(inter_visual_path)
+            ):
+                continue
+
+
             self.data_list.append(
                 [
                     label_name,
