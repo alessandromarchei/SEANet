@@ -123,3 +123,4 @@ gen_dataset_sweep.sh
 
 *.dat
 *.code-workspace
+*analysis_*/
